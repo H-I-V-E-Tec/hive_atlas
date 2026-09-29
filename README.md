@@ -105,6 +105,12 @@ Etapas 1–10 do plano implementadas em núcleo dependency-light e testadas
 | `bin/hive`, `atlas-release.json` | 8 | `hive install atlas` |
 | `atlas/license.py` | 9 | licença offline (fail-closed) |
 | `atlas/feedback.py` | 10 | store de desfechos |
+| `atlas/embed.py`, `store.py`, `push.py`, `scripts/provision_qdrant.sh` | 11 | biblioteca hospedada no Qdrant + semântica |
+
+**Subir no servidor do hive_mind (lab local):** ver [docs/deploy.md](docs/deploy.md)
+— `provision_qdrant.sh` cria a collection transversal `atlas_signals_v01`,
+`python3 -m atlas.push` popula, e o MCP usa Qdrant quando `QDRANT_API_KEY` está
+no ambiente (senão, JSON/léxico local).
 
 O que ainda é infra real (marcado no código/docs): download de release assinada,
 recuperação semântica com embeddings/Qdrant, e licença assimétrica. O histórico

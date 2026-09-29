@@ -1,5 +1,47 @@
 # Deploy e licenciamento
 
+## Subir a biblioteca no servidor do hive_mind (lab local)
+
+O Atlas reusa a MESMA caixa do hive_mind (Qdrant + Ollama + túnel/JWT), mas com
+uma **collection própria transversal** (`atlas_signals_v01`, sem `program_id`).
+O MCP continua **local**; só os dados ficam no servidor.
+
+```bash
+# 1. sobe Qdrant + Ollama (compose do hive_mind) e puxa o modelo
+cd ../hive_mind && docker compose up -d qdrant ollama
+docker compose exec ollama ollama pull nomic-embed-text
+
+# 2. cria a collection do Atlas e emite tokens (usa a admin key do hive_mind)
+cd ../hive_atlas
+HIVE_QDRANT_ADMIN_KEY=... scripts/provision_qdrant.sh
+# → imprime os export para popular (token rw) e o token r para o MCP
+
+# 3. popula a biblioteca (rw)
+export QDRANT_URL=http://127.0.0.1:6333 ATLAS_COLLECTION=atlas_signals_v01
+export OLLAMA_URL=http://127.0.0.1:11434 EMBEDDING_MODEL=nomic-embed-text
+export QDRANT_API_KEY=<token rw>
+python3 -m atlas.push
+
+# 4. registra o MCP apontando para o Qdrant (o token vem do ambiente, não do arquivo)
+bin/hive install atlas --local \
+  --qdrant-url http://127.0.0.1:6333 --ollama-url http://127.0.0.1:11434 \
+  --collection atlas_signals_v01 --model nomic-embed-text
+# depois, no shell que sobe o cliente:  export QDRANT_API_KEY=<token r>
+```
+
+Detecção de backend (`atlas/mcp_server.py`): com `QDRANT_API_KEY` no ambiente, o
+MCP carrega a biblioteca do Qdrant + recuperação semântica; sem ele, cai no
+`signals/*.json` local + recuperação léxica (mantém dev e testes offline). Falha
+de conexão ao Qdrant também cai para o local, com aviso.
+
+Migração para o **remoto** (atlasgrid.site): trocar `QDRANT_URL` por `https://…`
+com CA/túnel válidos e usar um token individual, como o §12 do
+`guias/CONFIGURAR_QDRANT_E_CODEX.md`. Nunca publicar 6333/6334 em `0.0.0.0`.
+
+---
+
+# Deploy do MCP e licenciamento
+
 ## `hive install atlas`
 
 Objetivo: um launcher `hive` único (gerenciador de pacotes da Hive) que instala

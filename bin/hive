@@ -34,11 +34,19 @@ install_atlas() {
   LOCAL=0
   CLIENT=""
   REQUIRE_LICENSE=0
+  QDRANT_URL_OPT=""
+  OLLAMA_URL_OPT=""
+  COLLECTION_OPT=""
+  MODEL_OPT=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --local) LOCAL=1 ;;
       --require-license) REQUIRE_LICENSE=1 ;;
       --client) shift; CLIENT="${1:-}" ;;
+      --qdrant-url) shift; QDRANT_URL_OPT="${1:-}" ;;
+      --ollama-url) shift; OLLAMA_URL_OPT="${1:-}" ;;
+      --collection) shift; COLLECTION_OPT="${1:-}" ;;
+      --model) shift; MODEL_OPT="${1:-}" ;;
       *) die "opção desconhecida: $1" ;;
     esac
     shift
@@ -67,15 +75,29 @@ install_atlas() {
     CLIENT="$REPO_DIR/.mcp.json"
   fi
 
+  # Monta os env não-secretos (QDRANT_API_KEY NÃO entra: é herdado do ambiente).
+  ATLAS_ENV_JSON=$(
+    QU="$QDRANT_URL_OPT" OU="$OLLAMA_URL_OPT" COL="$COLLECTION_OPT" MDL="$MODEL_OPT" \
+    python3 - <<'PY'
+import json, os
+env = {}
+for var, val in [("QDRANT_URL", os.environ["QU"]), ("OLLAMA_URL", os.environ["OU"]),
+                 ("ATLAS_COLLECTION", os.environ["COL"]), ("EMBEDDING_MODEL", os.environ["MDL"])]:
+    if val:
+        env[var] = val
+print(json.dumps(env))
+PY
+  )
+
   # Registra/mescla a entrada do MCP no .mcp.json do cliente.
   ATLAS_REPO="$REPO_DIR" ATLAS_NAME="$MCP_NAME" ATLAS_MODULE="$MCP_MODULE" \
-  ATLAS_REQLIC="$REQUIRE_LICENSE" python3 - "$CLIENT" <<'PY'
+  ATLAS_REQLIC="$REQUIRE_LICENSE" ATLAS_ENV_JSON="$ATLAS_ENV_JSON" python3 - "$CLIENT" <<'PY'
 import json, os, sys
 client = sys.argv[1]
 name = os.environ["ATLAS_NAME"]
 repo = os.environ["ATLAS_REPO"]
 module = os.environ["ATLAS_MODULE"]
-env = {}
+env = json.loads(os.environ.get("ATLAS_ENV_JSON") or "{}")
 if os.environ.get("ATLAS_REQLIC") == "1":
     env["ATLAS_REQUIRE_LICENSE"] = "1"
 try:

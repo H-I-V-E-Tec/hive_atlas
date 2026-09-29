@@ -15,6 +15,7 @@ Licença: `check_startup` roda em main() e é fail-closed no modo comercial.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -71,11 +72,29 @@ TOOLS = [
 ]
 
 
+def _build_backend(library_path: Path):
+    """Escolhe o backend: Qdrant (biblioteca hospedada + semântica) quando
+    configurado, senão JSON local + léxico (mantém dev e testes offline).
+    Falha no Qdrant cai para o JSON com aviso, em vez de derrubar o servidor."""
+    if os.environ.get("QDRANT_API_KEY"):
+        try:
+            from .store import QdrantStore
+            from .embed import OllamaEmbedder
+            from .retrieval import SemanticRetriever
+            store = QdrantStore(api_key=os.environ["QDRANT_API_KEY"])
+            lib = store.load_library()
+            if lib:
+                return Engine(lib), SemanticRetriever(store, OllamaEmbedder()), "qdrant"
+            print("atlas: collection vazia; caindo para biblioteca local", file=sys.stderr)
+        except Exception as exc:  # rede/collection ausente → fallback
+            print(f"atlas: Qdrant indisponível ({exc}); usando biblioteca local", file=sys.stderr)
+    lib = load_library(library_path)
+    return Engine(lib), LexicalRetriever(lib), "json"
+
+
 class Server:
     def __init__(self, library_path: Path = ROOT / "signals" / "core.json"):
-        lib = load_library(library_path)
-        self.engine = Engine(lib)
-        self.retriever = LexicalRetriever(lib)
+        self.engine, self.retriever, self.backend = _build_backend(library_path)
 
     # ---- tools ----
     def _observe(self, args: dict) -> str:

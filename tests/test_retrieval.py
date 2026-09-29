@@ -7,6 +7,16 @@ import pytest
 from atlas import Corpus, Engine, load_library
 from atlas.retrieval import LexicalRetriever, SemanticRetriever
 
+
+class _FakeStore:
+    def search(self, vector, k):
+        return [("C-02", 0.9)]
+
+
+class _FakeEmbedder:
+    def embed(self, text):
+        return [0.1, 0.2, 0.3]
+
 LIB = Path(__file__).resolve().parent.parent / "signals" / "core.json"
 
 
@@ -34,6 +44,7 @@ def test_prefiltro_preserva_o_lead_correto(library):
     assert "C-02" in ids
 
 
-def test_semantic_e_costura_nao_implementada(library):
-    with pytest.raises(NotImplementedError):
-        SemanticRetriever(library)
+def test_semantic_retriever_compoe_embed_e_store(library):
+    r = SemanticRetriever(_FakeStore(), _FakeEmbedder())
+    ids = {fid for fid, _ in r.search("oauth redirect", k=5)}
+    assert ids == {"C-02"}

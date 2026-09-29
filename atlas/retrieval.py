@@ -66,20 +66,19 @@ class LexicalRetriever:
 
 
 class SemanticRetriever:
-    """COSTURA para recuperação semântica. Não implementado no núcleo.
+    """Recuperação semântica: embeddings via Ollama (`nomic-embed-text`, como o
+    hive_mind) indexados num Qdrant próprio do Atlas, transversal (sem
+    `program_id`). Mesma interface `search`, então motor e MCP não mudam.
 
-    Plano de implementação (quando os casos justificarem, medindo o ganho):
-    embeddings locais via Ollama (`nomic-embed-text`, como o hive_mind) sobre o
-    doc de cada ficha, indexados num Qdrant próprio do Atlas com contrato
-    transversal (sem `program_id`). A interface é a mesma `search`, então o motor
-    e o MCP não mudam ao trocar/compor o backend.
+    Recebe um `store` (atlas.store.QdrantStore) e um `embedder`
+    (atlas.embed.OllamaEmbedder) — injetados para manter este módulo sem
+    dependência de rede e testável.
     """
 
-    def __init__(self, *_args, **_kwargs):
-        raise NotImplementedError(
-            "recuperação semântica é etapa futura; use LexicalRetriever até haver "
-            "casos que justifiquem embeddings (ver docstring)."
-        )
+    def __init__(self, store, embedder):
+        self.store = store
+        self.embedder = embedder
 
-    def search(self, query: str, k: int = 5) -> list[tuple[str, float]]:  # pragma: no cover
-        raise NotImplementedError
+    def search(self, query: str, k: int = 5) -> list[tuple[str, float]]:
+        vec = self.embedder.embed(query)
+        return self.store.search(vec, k)
