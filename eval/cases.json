@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "note": "Conjunto de avaliação revisado. `text` alimenta o baseline (hypotheses.py, regex puro); `evidence` alimenta o Atlas. `expected` = leads corretos; `forbidden` = leads que NÃO podem disparar (regressões).",
+  "cases": [
+    {
+      "id": "next-paginacao",
+      "kind": "negative",
+      "mechanism": "REDIR",
+      "text": "GET /v1/items?next=<cursor> — paginacao de lista publica",
+      "evidence": [
+        {"kind": "nota", "program_id": "acme", "asset": "api.acme.com", "flow": "listagem",
+         "endpoint": "/v1/items", "method": "GET",
+         "value": "GET /v1/items?next=<cursor> — paginacao de lista publica", "ref": "recon.txt:10"}
+      ],
+      "expected": [],
+      "forbidden": ["S-REDIR-01", "C-02"]
+    },
+    {
+      "id": "oauth-redirect",
+      "kind": "positive",
+      "mechanism": "REDIR",
+      "text": "GET /authorize?client_id=abc&redirect_uri=https://app/cb&response_type=code",
+      "evidence": [
+        {"kind": "js_finding", "program_id": "acme", "asset": "auth.acme.com", "flow": "oauth",
+         "endpoint": "/authorize",
+         "value": "GET /authorize?client_id=abc&redirect_uri=https://app/cb&response_type=code", "ref": "main.js:88"}
+      ],
+      "expected": ["S-REDIR-01", "C-02"],
+      "forbidden": []
+    },
+    {
+      "id": "redirect-sem-oauth",
+      "kind": "incomplete",
+      "mechanism": "REDIR",
+      "text": "?returnTo=https://evil.example refletido no Location",
+      "evidence": [
+        {"kind": "param", "program_id": "acme", "asset": "www.acme.com", "flow": "nav",
+         "value": "?returnTo=https://evil.example refletido no Location", "ref": "wal#7"}
+      ],
+      "expected": ["S-REDIR-01"],
+      "forbidden": ["C-02"]
+    },
+    {
+      "id": "idor-id-no-path",
+      "kind": "positive",
+      "mechanism": "IDOR",
+      "text": "GET /v1/users/{userId} retorna dados do perfil",
+      "evidence": [
+        {"kind": "endpoint", "program_id": "acme", "asset": "api.acme.com", "flow": "authz",
+         "endpoint": "/v1/users/{userId}", "method": "GET",
+         "value": "GET /v1/users/{userId} retorna dados do perfil", "ref": "recon.txt:22"}
+      ],
+      "expected": ["S-IDOR-01"],
+      "forbidden": []
+    },
+    {
+      "id": "idor-id-decorativo",
+      "kind": "negative",
+      "mechanism": "IDOR",
+      "text": "campo id decorativo, apenas exibicao, sem acesso a objeto",
+      "evidence": [
+        {"kind": "nota", "program_id": "acme", "asset": "www.acme.com", "flow": "ui",
+         "value": "campo id decorativo, apenas exibicao, sem acesso a objeto", "ref": "nota:3"}
+      ],
+      "expected": [],
+      "forbidden": ["S-IDOR-01"]
+    },
+    {
+      "id": "benigno-sem-sinal",
+      "kind": "negative",
+      "mechanism": "NONE",
+      "text": "pagina de marketing estatica com texto institucional",
+      "evidence": [
+        {"kind": "nota", "program_id": "acme", "asset": "www.acme.com", "flow": "static",
+         "value": "pagina de marketing estatica com texto institucional", "ref": "nota:9"}
+      ],
+      "expected": [],
+      "forbidden": []
+    }
+  ]
+}

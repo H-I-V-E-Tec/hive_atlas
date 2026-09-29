@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "repository": "H-I-V-E-Tec/hive_atlas",
+  "version": "UNSET",
+  "require_signature": true,
+  "mcp": {
+    "name": "hive_atlas",
+    "module": "atlas.mcp_server"
+  }
+}

@@ -69,3 +69,11 @@ class Corpus:
 
     def haystacks(self) -> list[str]:
         return [e.haystack() for e in self.events]
+
+    def by_scope(self) -> dict[tuple[str, str, str], "Corpus"]:
+        """Agrupa por (program_id, asset, flow). Sinais de fluxos diferentes não
+        devem ser combinados como cadeia sem sustentar a conexão (plano §recon)."""
+        groups: dict[tuple[str, str, str], "Corpus"] = {}
+        for e in self.events:
+            groups.setdefault(e.scope_key(), Corpus()).add(e)
+        return groups

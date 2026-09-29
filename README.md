@@ -77,8 +77,36 @@ SHA-256 + assinatura, instala sem clonar repo e auto-registra o MCP no cliente.
 Fail-closed. Comercialização: chave de licença validada por assinatura offline
 no startup do MCP.
 
+## Como rodar
+
+Stdlib puro (Python 3.10+), sem dependências. `pytest` só para os testes.
+
+```bash
+python3 -m pytest tests/ -q          # suíte completa
+python3 -m atlas.eval                # mede Atlas vs. hypotheses.py (baseline)
+python3 -m atlas.mcp_server          # sobe o servidor MCP (stdio)
+bin/hive install atlas --local       # registra o MCP no cliente (.mcp.json)
+```
+
 ## Estado
 
-Fundação (Etapa 1). O plano completo e as etapas seguintes estão descritos no
-plano de implementação; o histórico da proposta original está em
-[docs/historico-proposta-dojo.md](docs/historico-proposta-dojo.md).
+Etapas 1–10 do plano implementadas em núcleo dependency-light e testadas
+(29 testes):
+
+| Módulo | Etapa | Papel |
+|---|---|---|
+| `docs/`, `README.md` | 1 | fundação e contratos |
+| `atlas/ficha.py`, `evidence.py`, `engine.py` | 2 | núcleo: fichas + condições + board |
+| `atlas/eval.py`, `eval/cases.json` | 3 | medição vs. `hypotheses.py` |
+| `atlas/watcher.py` | 4 | observação ao vivo (tail → board) |
+| `atlas/retrieval.py` | 5 | recuperação léxica + costura semântica |
+| `atlas/mcp_server.py` | 6 | servidor MCP (stdio) |
+| `atlas/ingest.py` | 7 | ingestão do dojo (fail-closed) |
+| `bin/hive`, `atlas-release.json` | 8 | `hive install atlas` |
+| `atlas/license.py` | 9 | licença offline (fail-closed) |
+| `atlas/feedback.py` | 10 | store de desfechos |
+
+O que ainda é infra real (marcado no código/docs): download de release assinada,
+recuperação semântica com embeddings/Qdrant, e licença assimétrica. O histórico
+da proposta original está em [docs/historico-proposta-dojo.md](docs/historico-proposta-dojo.md);
+deploy e licença em [docs/deploy.md](docs/deploy.md).

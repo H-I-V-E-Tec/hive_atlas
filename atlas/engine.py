@@ -14,10 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .evidence import Corpus, Evidence
-from .ficha import (
-    AUSENTE, DESCONHECIDA, PRESENTE, Ficha,
-)
+from .evidence import Corpus
+from .ficha import AUSENTE, PRESENTE, Ficha
 
 FORTE = "forte"
 CANDIDATO = "candidato"
@@ -58,28 +56,26 @@ class Engine:
         self.library = library
 
     # ---- avaliação ----
-    def _first_match(self, ficha: Ficha, corpus: Corpus) -> Evidence | None:
-        for ev in corpus:
-            if any(rx.search(ev.haystack()) for rx in ficha._pats):
-                return ev
-        return None
-
-    def _eval_conditions(self, ficha: Ficha, haystacks: list[str]):
-        present, absent, unknown, refuted = [], [], [], False
+    def _eval_conditions(self, ficha: Ficha, local: list[str], context: list[str]):
+        """Condições `refute` são avaliadas sobre a evidência LOCAL que disparou o
+        sinal (é sobre o campo observado); condições `required` sobre o CONTEXTO do
+        fluxo (é sobre o ambiente). Retorna também required_absent."""
+        present, absent, unknown, refuted, required_absent = [], [], [], False, False
         for c in ficha.conditions:
-            status = c.resolve(haystacks)
             if c.role == "refute":
-                if status == PRESENTE:
+                if c.resolve(local) == PRESENTE:
                     refuted = True
                     absent.append(f"{c.means} (contraexemplo presente)")
                 continue
+            status = c.resolve(context)
             if status == PRESENTE:
                 present.append(c.means)
             elif status == AUSENTE:
                 absent.append(c.means)
+                required_absent = True
             else:
                 unknown.append(c.means)
-        return present, absent, unknown, refuted
+        return present, absent, unknown, refuted, required_absent
 
     def _verdict(self, refuted: bool, absent: list[str], unknown: list[str],
                  required_absent: bool) -> str:
@@ -89,45 +85,68 @@ class Engine:
             return CANDIDATO
         return FORTE
 
-    def evaluate(self, corpus: Corpus) -> dict[str, Recommendation]:
+    def _expand_candidates(self, ids: set[str]) -> set[str]:
+        """Inclui feeders de chains candidatas e chains alimentadas por sinais
+        candidatos, para o pré-filtro não quebrar as composições."""
+        out = set(ids)
+        for fid in list(ids):
+            f = self.library.get(fid)
+            if not f:
+                continue
+            out.update(f.requires)   # chain → seus feeders
+            out.update(f.feeds)      # sinal → chains que ele alimenta
+        return out
+
+    def select_candidates(self, corpus: Corpus, retriever, k: int = 5) -> set[str]:
+        """Usa a recuperação para escolher fichas candidatas (orçamento de k)."""
+        query = " ".join(corpus.haystacks())
+        hits = {fid for fid, _ in retriever.search(query, k)}
+        return self._expand_candidates(hits)
+
+    def evaluate(self, corpus: Corpus, only: set[str] | None = None) -> dict[str, Recommendation]:
         haystacks = corpus.haystacks()
         results: dict[str, Recommendation] = {}
 
-        # Pass 1: sinais únicos
+        _rank = {FORTE: 0, CANDIDATO: 1, DESCARTADO: 2}
+
+        # Pass 1: sinais únicos — avaliados POR OCORRÊNCIA (evidência que dispara).
         for fid, ficha in self.library.items():
             if ficha.kind != "signal":
                 continue
-            if not ficha.triggers(haystacks):
+            if only is not None and fid not in only:
                 continue
-            present, absent, unknown, refuted = self._eval_conditions(ficha, haystacks)
-            required_absent = any(
-                c.role == "required" and c.resolve(haystacks) == AUSENTE
-                for c in ficha.conditions
-            )
-            verdict = self._verdict(refuted, absent, unknown, required_absent)
-            ev = self._first_match(ficha, corpus)
-            results[fid] = Recommendation(
-                ficha=ficha, verdict=verdict,
-                observation=(ev.haystack() if ev else ""),
-                ref=(ev.ref if ev else ""),
-                present=present, absent=absent, unknown=unknown,
-            )
+            occurrences = [ev for ev in corpus
+                           if any(rx.search(ev.haystack()) for rx in ficha._pats)]
+            if not occurrences:
+                continue
+            best: Recommendation | None = None
+            for ev in occurrences:
+                present, absent, unknown, refuted, required_absent = self._eval_conditions(
+                    ficha, local=[ev.haystack()], context=haystacks)
+                verdict = self._verdict(refuted, absent, unknown, required_absent)
+                rec = Recommendation(
+                    ficha=ficha, verdict=verdict,
+                    observation=ev.haystack(), ref=ev.ref,
+                    present=present, absent=absent, unknown=unknown,
+                )
+                if best is None or _rank[verdict] < _rank[best.verdict]:
+                    best = rec
+            results[fid] = best  # type: ignore[assignment]
 
         # Pass 2: composições (C-*). Só encadeiam sobre feeders que dispararam
         # e não foram descartados.
         for fid, ficha in self.library.items():
             if ficha.kind != "chain":
                 continue
+            if only is not None and fid not in only:
+                continue
             feeders = [results.get(r) for r in ficha.requires]
             fired = [f for f in feeders if f and f.is_lead]
             if len(fired) != len(ficha.requires):
                 # feeder faltando ou descartado → a chain não se sustenta
                 continue
-            present, absent, unknown, refuted = self._eval_conditions(ficha, haystacks)
-            required_absent = any(
-                c.role == "required" and c.resolve(haystacks) == AUSENTE
-                for c in ficha.conditions
-            )
+            present, absent, unknown, refuted, required_absent = self._eval_conditions(
+                ficha, local=haystacks, context=haystacks)
             verdict = self._verdict(refuted, absent, unknown, required_absent)
             if verdict == DESCARTADO:
                 continue
@@ -145,11 +164,26 @@ class Engine:
         return results
 
     # ---- board ----
-    def recommend(self, corpus: Corpus) -> list[Recommendation]:
+    def recommend(self, corpus: Corpus, retriever=None, k: int = 5) -> list[Recommendation]:
         """Board rankeado: só leads (forte/candidato); chains antes de únicos,
-        depois por peso de classe, forte antes de candidato."""
-        results = self.evaluate(corpus)
-        leads = [r for r in results.values() if r.is_lead]
+        depois por peso de classe, forte antes de candidato.
+
+        Se `retriever` for dado, pré-seleciona até k fichas candidatas (mais os
+        feeders necessários) antes de avaliar condições — o orçamento por fluxo.
+
+        Avalia POR FLUXO (scope_key) e agrega: uma condição refute de um fluxo não
+        derruba um sinal de outro fluxo."""
+        best: dict[str, Recommendation] = {}
+        for _scope, sub in corpus.by_scope().items():
+            only = self.select_candidates(sub, retriever, k) if retriever is not None else None
+            for fid, rec in self.evaluate(sub, only=only).items():
+                if not rec.is_lead:
+                    continue
+                prev = best.get(fid)
+                # mantém o melhor veredito por ficha entre fluxos (forte > candidato)
+                if prev is None or (prev.verdict != FORTE and rec.verdict == FORTE):
+                    best[fid] = rec
+        leads = list(best.values())
         leads.sort(key=lambda r: (
             0 if r.ficha.kind == "chain" else 1,
             r.ficha.weight,

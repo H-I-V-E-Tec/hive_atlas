@@ -1,0 +1,124 @@
+#!/usr/bin/env sh
+# hive — launcher/gerenciador de pacotes da Hive (Etapa 8 do plano).
+#
+# Objetivo: colapsar o fluxo do hive_instance (clonar + credenciais à mão +
+# ./hive install) em um comando por componente. Aqui: `hive install atlas`.
+#
+#   hive install atlas [--local] [--client <arquivo.mcp.json>] [--require-license]
+#
+# --local  : registra o MCP a partir DESTE checkout (modo dev), pulando o
+#            download de release. Sem --local, exige uma release assinada e
+#            fixada no manifesto (fail-closed enquanto version=UNSET), como o
+#            inicializador do hive_instance.
+#
+# Auto-registra o MCP no cliente (.mcp.json). Não versione licença/credencial.
+set -eu
+
+REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+MANIFEST="$REPO_DIR/atlas-release.json"
+
+die() { echo "hive: $*" >&2; exit 1; }
+
+manifest_get() {
+  python3 - "$MANIFEST" "$1" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+cur = m
+for part in sys.argv[2].split("."):
+    cur = cur.get(part, "") if isinstance(cur, dict) else ""
+print(cur)
+PY
+}
+
+install_atlas() {
+  LOCAL=0
+  CLIENT=""
+  REQUIRE_LICENSE=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --local) LOCAL=1 ;;
+      --require-license) REQUIRE_LICENSE=1 ;;
+      --client) shift; CLIENT="${1:-}" ;;
+      *) die "opção desconhecida: $1" ;;
+    esac
+    shift
+  done
+
+  command -v python3 >/dev/null 2>&1 || die "python3 é obrigatório"
+  [ -f "$MANIFEST" ] || die "manifesto ausente: $MANIFEST"
+
+  MCP_NAME=$(manifest_get "mcp.name")
+  MCP_MODULE=$(manifest_get "mcp.module")
+  VERSION=$(manifest_get "version")
+  REQUIRE_SIG=$(manifest_get "require_signature")
+
+  if [ "$LOCAL" -ne 1 ]; then
+    # Caminho de release assinada: fail-closed até haver release real publicada.
+    if [ "$VERSION" = "UNSET" ] || [ -z "$VERSION" ]; then
+      die "release não publicada (version=UNSET). Use --local para dev, ou publique uma release assinada no manifesto."
+    fi
+    # TODO(release): baixar o pacote fixado, validar SHA-256 + assinatura
+    # ($REQUIRE_SIG=$REQUIRE_SIG), instalar atomicamente. Fail-closed sem assinatura.
+    die "download de release assinada ainda não implementado; use --local por enquanto."
+  fi
+
+  # Cliente alvo: onde registrar o MCP.
+  if [ -z "$CLIENT" ]; then
+    CLIENT="$REPO_DIR/.mcp.json"
+  fi
+
+  # Registra/mescla a entrada do MCP no .mcp.json do cliente.
+  ATLAS_REPO="$REPO_DIR" ATLAS_NAME="$MCP_NAME" ATLAS_MODULE="$MCP_MODULE" \
+  ATLAS_REQLIC="$REQUIRE_LICENSE" python3 - "$CLIENT" <<'PY'
+import json, os, sys
+client = sys.argv[1]
+name = os.environ["ATLAS_NAME"]
+repo = os.environ["ATLAS_REPO"]
+module = os.environ["ATLAS_MODULE"]
+env = {}
+if os.environ.get("ATLAS_REQLIC") == "1":
+    env["ATLAS_REQUIRE_LICENSE"] = "1"
+try:
+    with open(client) as fh:
+        cfg = json.load(fh)
+except (FileNotFoundError, json.JSONDecodeError):
+    cfg = {}
+cfg.setdefault("mcpServers", {})
+entry = {"command": "python3", "args": ["-m", module], "cwd": repo}
+if env:
+    entry["env"] = env
+cfg["mcpServers"][name] = entry
+with open(client, "w") as fh:
+    json.dump(cfg, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+print(f"registrado MCP '{name}' em {client}")
+PY
+
+  echo ""
+  echo "Próximos passos:"
+  echo "  - reinicie o cliente (Claude Code/Codex) para carregar o MCP '$MCP_NAME'."
+  if [ "$REQUIRE_LICENSE" -eq 1 ]; then
+    echo "  - modo comercial: defina ATLAS_LICENSE e ATLAS_LICENSE_KEY (canal privado)."
+  fi
+}
+
+usage() {
+  cat >&2 <<EOF
+uso: hive install atlas [--local] [--client <arquivo.mcp.json>] [--require-license]
+EOF
+  exit 2
+}
+
+[ $# -ge 1 ] || usage
+CMD="$1"; shift
+case "$CMD" in
+  install)
+    [ $# -ge 1 ] || usage
+    COMPONENT="$1"; shift
+    case "$COMPONENT" in
+      atlas) install_atlas "$@" ;;
+      *) die "componente desconhecido: $COMPONENT (só 'atlas' por enquanto)" ;;
+    esac
+    ;;
+  *) usage ;;
+esac
