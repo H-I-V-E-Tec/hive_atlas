@@ -1,0 +1,84 @@
+# Hive Atlas 🗺️
+
+> Biblioteca de **sinais** de segurança + motor que **observa a sessão ao vivo**
+> e mostra o *melhor caminho a seguir*. Entregue como **servidor MCP**. Ativo
+> **compartilhado** da Hive.
+>
+> Uso restrito a programas e ativos autorizados. O Atlas é **advisory**: nunca
+> toca o alvo, nunca dispara teste e **nunca autoriza tráfego**. Toda saída é
+> `[UNTESTED]`. O gate de escopo continua no excalibull.
+
+## Onde o Atlas fica entre os projetos da Hive
+
+| Projeto | Papel | Natureza |
+|---|---|---|
+| **hive_mind** | A mente da colmeia: leva informação de um membro a outro, mantém contexto entre sessões. Fonte canônica de scope/policy/recon/findings **por `program_id`** (Go + MCP + Qdrant). | Infra compartilhada |
+| **excalibull** | Framework **pessoal**: regras, protocolos (`THE-MIND.md`, `CODES.md`), ferramentas e o modo *hunter*. Consome o hive_mind. **O `dojo` (treino) vive aqui.** | Pessoal |
+| **hive_atlas** | **Este projeto.** Biblioteca de sinais (transversal, program-agnostic) + recomendação ao vivo, via MCP. | Compartilhada |
+| **hive_scout** | Worker que mantém escopo fresco. | Infra compartilhada |
+
+**Memória de método, não de fatos.** O hive_mind lembra *o que aconteceu em cada
+programa*; o Atlas lembra *como reconhecer um mecanismo em qualquer programa*.
+São camadas complementares.
+
+## O ciclo: dojo produz, Atlas serve
+
+```text
+write-ups/findings revisados
+        │  dojo (no excalibull) — usa o julgamento do operador como revisor
+        ▼  destila · exercita · avalia · PROMOVE (fronteira de confiança)
+biblioteca de sinais  ← hive_atlas (ativo compartilhado, contrato versionado)
+        │  atlas observa a evidência da sessão ao vivo (contrato de evidência)
+        ▼  emite "melhor caminho": sinais candidatos rankeados [UNTESTED]
+hunter (excalibull)  → decide, confirma sob o gate de escopo, reporta
+```
+
+- **dojo** = produtor e QA dos sinais (vive no excalibull).
+- **hive_atlas** = consumidor em runtime: biblioteca + recuperação + recomendação.
+
+## O que o Atlas é e o que não é
+
+- **É**: biblioteca de sinais reutilizáveis + motor de recuperação e recomendação,
+  entregue como MCP. Raciocínio sobre **evidência já coletada** numa sessão
+  autorizada.
+- **Não é**: não toca o alvo, não dispara testes, não autoriza tráfego. Não é
+  dono de fatos por programa (isso é hive_mind). Não é o loop de treino (isso é
+  o dojo).
+
+## Dois armazenamentos, dois contratos
+
+O hive_mind não faz busca global e não aceita `program_id` fictício. Então o
+Atlas tem **loja própria** para a biblioteca transversal e apenas **lê** a
+evidência do programa ativo.
+
+1. **Biblioteca de sinais (loja do Atlas)** — fichas reutilizáveis,
+   program-agnostic. Conhecimento de *método*. Ver [docs/ficha-schema.md](docs/ficha-schema.md).
+2. **Evidência da sessão (fonte externa)** — o que o Atlas observa ao vivo,
+   sempre dentro de escopo autorizado. Ver [docs/contrato-evidencia.md](docs/contrato-evidencia.md).
+
+A produção de fichas pelo dojo entra pelo [contrato de ingestão](docs/contrato-ingestao.md)
+(caminho de escrita, separado do MCP de leitura).
+
+## Interface MCP (proposta — validar o núcleo antes de crescer)
+
+| Ferramenta | Ação |
+|---|---|
+| `atlas_observe` | Dado program/ativo + evidência da sessão, devolve o board de melhor caminho (sinais candidatos rankeados, `[UNTESTED]`). |
+| `atlas_signals_search` | Recupera fichas candidatas (texto + semântica) sem avaliar a sessão inteira. |
+| `atlas_feedback` | Registra desfecho revisado de uma recomendação. |
+
+Reader ≠ writer: a ingestão de fichas **não** é uma ferramenta do MCP de leitura.
+
+## Deploy — `hive install atlas` (alvo)
+
+Um launcher `hive` único (gerenciador de pacotes da Hive) resolve a release do
+Atlas por manifesto assinado (esquema de `hive-release.json`), valida
+SHA-256 + assinatura, instala sem clonar repo e auto-registra o MCP no cliente.
+Fail-closed. Comercialização: chave de licença validada por assinatura offline
+no startup do MCP.
+
+## Estado
+
+Fundação (Etapa 1). O plano completo e as etapas seguintes estão descritos no
+plano de implementação; o histórico da proposta original está em
+[docs/historico-proposta-dojo.md](docs/historico-proposta-dojo.md).

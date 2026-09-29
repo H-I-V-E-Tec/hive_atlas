@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "produced_by": "migração inicial de excalibull/memory/signals.md",
+  "signals": [
+    {
+      "id": "S-IDOR-01",
+      "version": 1,
+      "state": "revisada",
+      "kind": "signal",
+      "signal_class": "IDOR",
+      "mechanism": "authz confia no id do request → objeto de outra conta lido/escrito.",
+      "patterns": ["\\b(id|uuid|account|file|invoice|order|booking|memberId|userId|profileId)\\b"],
+      "conditions": [
+        {
+          "id": "id_decorativo",
+          "role": "refute",
+          "pattern": "id\\s+decorativo|apenas\\s+exibi|somente\\s+leitura\\s+p[uú]blica",
+          "means": "id é decorativo / sem acesso a objeto"
+        }
+      ],
+      "feeds": ["C-01"],
+      "counterexample": "authz pelo token noutra camada; 200 p/ qualquer id mas filtra por dono.",
+      "confirmation": "duas contas (matriz A/B): ler/escrever objeto de B autenticado como A e ler de volta."
+    },
+    {
+      "id": "S-REDIR-01",
+      "version": 1,
+      "state": "revisada",
+      "kind": "signal",
+      "signal_class": "REDIR",
+      "mechanism": "redirect controlável → sozinho é never-submit; vale só encadeado (OAuth code / returnTo / SAML).",
+      "patterns": ["\\b(redirect|redirect_uri|returnTo|next|continue|dest|callback)\\b"],
+      "conditions": [
+        {
+          "id": "contexto_paginacao",
+          "role": "refute",
+          "pattern": "pagina|paginat|cursor|per_page|page=|lista\\s+p[uú]blica|listagem",
+          "means": "o campo é paginação de lista, não destino de navegação"
+        }
+      ],
+      "feeds": ["C-02"],
+      "counterexample": "redirect sozinho = never-submit; campo 'next' de paginação de lista NÃO é redirect.",
+      "confirmation": "ver se o parâmetro reflete o destino; testar âncoras-feeder de open-redirect."
+    },
+    {
+      "id": "C-02",
+      "version": 1,
+      "state": "revisada",
+      "kind": "chain",
+      "signal_class": "REDIR",
+      "mechanism": "redirect controlável no redirect_uri de um fluxo OAuth → roubo de auth code → token (ATO).",
+      "requires": ["S-REDIR-01"],
+      "conditions": [
+        {
+          "id": "oauth_presente",
+          "role": "required",
+          "pattern": "client_id|redirect_uri|/authorize|/oauth|response_type|/token",
+          "means": "fluxo OAuth presente (client_id / redirect_uri / authorize)"
+        }
+      ],
+      "counterexample": "redirect refletido sem nenhum fluxo OAuth por perto: não há code para roubar.",
+      "confirmation": "apontar redirect_uri para host controlado e ver se o ?code= vaza."
+    }
+  ]
+}
