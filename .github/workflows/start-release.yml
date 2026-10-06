@@ -1,0 +1,39 @@
+name: Start release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (for example, v1.0.1)'
+        required: true
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: start-release
+  cancel-in-progress: false
+
+jobs:
+  tag_and_dispatch:
+    name: Tag master and start signed release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create version tag and start release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/master
+          [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/master" --jq '.object.sha')"
+          test "$main_sha" = "$GITHUB_SHA"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${RELEASE_VERSION}" -f sha="$GITHUB_SHA" >/dev/null
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
+            -f ref="$RELEASE_VERSION" >/dev/null
+          printf 'Release %s started from master commit %s\n' "$RELEASE_VERSION" "$GITHUB_SHA"

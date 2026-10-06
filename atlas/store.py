@@ -18,6 +18,8 @@ from .ficha import Ficha
 
 DEFAULT_URL = os.environ.get("QDRANT_URL_REST", os.environ.get("QDRANT_URL", "http://127.0.0.1:6333"))
 DEFAULT_COLLECTION = os.environ.get("ATLAS_COLLECTION", "atlas_signals_v01")
+# CA privada do Qdrant do servidor (loopback HTTPS). Vazio em dev/http.
+DEFAULT_CA_FILE = os.environ.get("QDRANT_TLS_CA_FILE", "")
 _NS = uuid.UUID("a71a5000-0000-4000-8000-000000000000")  # namespace fixo do Atlas
 
 
@@ -27,13 +29,18 @@ def point_id(ficha_id: str) -> str:
 
 class QdrantStore:
     def __init__(self, url: str = DEFAULT_URL, api_key: str = "",
-                 collection: str = DEFAULT_COLLECTION):
+                 collection: str = DEFAULT_COLLECTION,
+                 ca_file: str = DEFAULT_CA_FILE):
         self.url = url.rstrip("/")
         self.collection = collection
+        self.ca_file = ca_file
         self._headers = {"api-key": api_key} if api_key else {}
 
     def _req(self, method: str, path: str, payload: dict | None = None) -> dict:
-        return _http.request_json(method, f"{self.url}{path}", payload, self._headers)
+        # Só passa ca_file quando definido, para não alterar a chamada em dev/http
+        # (e manter o transporte falso dos testes com a mesma assinatura).
+        kwargs = {"ca_file": self.ca_file} if self.ca_file else {}
+        return _http.request_json(method, f"{self.url}{path}", payload, self._headers, **kwargs)
 
     # ---- provisionamento (o script provision_qdrant.sh é o caminho normal) ----
     def create_collection(self, dim: int) -> None:

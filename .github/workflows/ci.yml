@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install test tooling
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Run the suite
+        run: python -m pytest -q tests
+
+      - name: Validate deploy scripts
+        run: |
+          bash -n deploy/deploy_server.sh
+          bash -n deploy/pull_server_release.sh
+          bash deploy/test_deploy_server.sh

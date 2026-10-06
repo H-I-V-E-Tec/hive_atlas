@@ -77,6 +77,14 @@ SHA-256 + assinatura, instala sem clonar repo e auto-registra o MCP no cliente.
 Fail-closed. Comercialização: chave de licença validada por assinatura offline
 no startup do MCP.
 
+## Deploy da biblioteca no servidor
+
+`Start release` → `Build and Release` (bundle assinado via Sigstore) →
+`Deploy Atlas library` (SSH: o servidor baixa, verifica e roda `atlas.push`
+contra o Qdrant do `hive_mind`). Passo a passo e preparação do servidor em
+[docs/deploy.md](docs/deploy.md). O fluxo pode ser validado localmente com
+`bash deploy/test_deploy_server.sh` (sem Qdrant/Ollama reais).
+
 ## Como rodar
 
 Stdlib puro (Python 3.10+), sem dependências. `pytest` só para os testes.
