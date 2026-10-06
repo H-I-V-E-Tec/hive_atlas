@@ -9,12 +9,24 @@ exemplos não resolvem.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_STORE = ROOT / ".atlas" / "feedback.jsonl"
+
+
+def _default_store() -> Path:
+    if os.environ.get("ATLAS_FEEDBACK_FILE"):
+        return Path(os.environ["ATLAS_FEEDBACK_FILE"])
+    if ROOT.is_dir():
+        return ROOT / ".atlas" / "feedback.jsonl"
+    hive_home = Path(os.environ.get("HIVE_HOME", str(Path.home() / ".hive")))
+    return hive_home / "atlas" / "feedback.jsonl"
+
+
+DEFAULT_STORE = _default_store()
 
 _OUTCOMES = {"confirmado", "descartado", "inconclusivo"}
 
@@ -34,7 +46,7 @@ class Feedback:
 
 def record(fb: Feedback, store: str | Path | None = None) -> None:
     p = Path(store if store is not None else DEFAULT_STORE)
-    p.parent.mkdir(parents=True, exist_ok=True)
+    p.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with p.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(asdict(fb), ensure_ascii=False) + "\n")
 

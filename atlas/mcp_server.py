@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from importlib import resources
 from pathlib import Path
 
 from .engine import Engine
@@ -25,6 +26,7 @@ from .feedback import Feedback, record
 from .ficha import load_library
 from .license import LicenseError, check_startup
 from .retrieval import LexicalRetriever
+from .version import VERSION
 
 ROOT = Path(__file__).resolve().parent.parent
 PROTOCOL_VERSION = "2024-11-05"
@@ -72,7 +74,7 @@ TOOLS = [
 ]
 
 
-def _build_backend(library_path: Path):
+def _build_backend(library_path):
     """Escolhe o backend: Qdrant (biblioteca hospedada + semântica) quando
     configurado, senão JSON local + léxico (mantém dev e testes offline).
     Falha no Qdrant cai para o JSON com aviso, em vez de derrubar o servidor."""
@@ -93,7 +95,10 @@ def _build_backend(library_path: Path):
 
 
 class Server:
-    def __init__(self, library_path: Path = ROOT / "signals" / "core.json"):
+    def __init__(self, library_path: Path | None = None):
+        if library_path is None:
+            local = ROOT / "signals" / "core.json"
+            library_path = local if local.is_file() else resources.files("atlas").joinpath("data/core.json")
         self.engine, self.retriever, self.backend = _build_backend(library_path)
 
     # ---- tools ----
@@ -143,7 +148,7 @@ class Server:
                 result = {
                     "protocolVersion": PROTOCOL_VERSION,
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "hive-atlas", "version": "0.1.0"},
+                    "serverInfo": {"name": "hive-atlas", "version": VERSION},
                 }
             elif method in ("notifications/initialized", "initialized"):
                 return None  # notificação, sem resposta
@@ -171,6 +176,10 @@ class Server:
 
 
 def main() -> int:
+    # JSON-RPC stdio deve usar UTF-8 também em terminais Windows.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     try:
         lic = check_startup()
     except LicenseError as exc:

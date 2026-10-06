@@ -38,6 +38,19 @@ jobs:
           [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
           test "$(git rev-list -n 1 "$RELEASE_VERSION")" = "$GITHUB_SHA"
 
+      - name: Set up Python for the portable MCP client
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: '3.10'
+
+      - name: Build and smoke-test MCP client
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          python scripts/build_client_release.py --version "$VERSION" --revision "$GITHUB_SHA"
+          python "dist/atlas-${VERSION}.pyz" version --json |
+            python -c 'import json, os, sys; p = json.load(sys.stdin); assert p["version"] == os.environ["VERSION"]; assert p["revision"] == os.environ["GITHUB_SHA"]'
+
       - name: Create server bundle and checksums
         env:
           VERSION: ${{ github.ref_name }}
