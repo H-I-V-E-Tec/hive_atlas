@@ -12,6 +12,10 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from importlib.abc import Traversable  # Python 3.10 também suporta esse tipo
 
 SCHEMA_VERSION = 1
 
@@ -110,13 +114,14 @@ class Ficha:
         return cls(conditions=conds, **payload)
 
 
-def load_library(path: str | Path) -> dict[str, Ficha]:
+def load_library(path: str | Path | Traversable) -> dict[str, Ficha]:
     """Carrega a biblioteca de fichas de um arquivo JSON (loja dependency-light).
 
     A escolha final da loja (SQLite/Qdrant) é questão em aberto; o motor só
     depende de um dict id → Ficha.
     """
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    resource = Path(path) if isinstance(path, str) else path
+    data = json.loads(resource.read_text(encoding="utf-8"))
     if data.get("schema_version") != SCHEMA_VERSION:
         raise ValueError(f"schema_version incompatível: {data.get('schema_version')}")
     fichas = [Ficha.from_dict(f) for f in data.get("signals", [])]

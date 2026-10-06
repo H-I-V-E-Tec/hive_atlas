@@ -69,13 +69,24 @@ A produção de fichas pelo dojo entra pelo [contrato de ingestão](docs/contrat
 
 Reader ≠ writer: a ingestão de fichas **não** é uma ferramenta do MCP de leitura.
 
-## Deploy — `hive install atlas` (alvo)
+## Instalar o MCP — `hive install atlas`
 
-Um launcher `hive` único (gerenciador de pacotes da Hive) resolve a release do
-Atlas por manifesto assinado (esquema de `hive-release.json`), valida
-SHA-256 + assinatura, instala sem clonar repo e auto-registra o MCP no cliente.
-Fail-closed. Comercialização: chave de licença validada por assinatura offline
-no startup do MCP.
+O launcher [`hive_cli`](../hive_cli) instala o cliente portátil `atlas-vX.Y.Z.pyz`
+da release do Atlas, verifica a assinatura Sigstore de `SHA256SUMS` e o checksum,
+confere a versão do pacote e só então o ativa. Requer **Python 3.10+** no PATH;
+não precisa clonar o repositório nem instalar dependências Python.
+
+```bash
+hive install atlas                     # última release assinada com cliente
+hive atlas version --json              # identidade do pacote instalado
+hive version                           # versões de hive, mind e atlas
+hive atlas                             # inicia o MCP via stdio
+```
+
+O suporte ao Atlas precisa estar publicado no launcher e a release do Atlas
+precisa conter o `.pyz`. Registro no agente, atualização e rollback estão em
+[docs/deploy.md](docs/deploy.md). O startup continua exigindo licença válida
+quando `ATLAS_REQUIRE_LICENSE=1`.
 
 ## Deploy da biblioteca no servidor
 
@@ -93,6 +104,7 @@ Stdlib puro (Python 3.10+), sem dependências. `pytest` só para os testes.
 python3 -m pytest tests/ -q          # suíte completa
 python3 -m atlas.eval                # mede Atlas vs. hypotheses.py (baseline)
 python3 -m atlas.mcp_server          # sobe o servidor MCP (stdio)
+python3 -m atlas version --json      # checkout se identifica como dev
 bin/hive install atlas --local       # registra o MCP no cliente (.mcp.json)
 ```
 
@@ -120,7 +132,7 @@ Etapas 1–10 do plano implementadas em núcleo dependency-light e testadas
 `python3 -m atlas.push` popula, e o MCP usa Qdrant quando `QDRANT_API_KEY` está
 no ambiente (senão, JSON/léxico local).
 
-O que ainda é infra real (marcado no código/docs): download de release assinada,
-recuperação semântica com embeddings/Qdrant, e licença assimétrica. O histórico
+O que ainda requer validação operacional: releases assinadas e instalação real
+via launcher, recuperação semântica com embeddings/Qdrant e licença assimétrica. O histórico
 da proposta original está em [docs/historico-proposta-dojo.md](docs/historico-proposta-dojo.md);
 deploy e licença em [docs/deploy.md](docs/deploy.md).

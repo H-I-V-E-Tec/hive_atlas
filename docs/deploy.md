@@ -32,6 +32,8 @@ nem toca o Mind.
    nova `vX.Y.Z`. Ela cria a tag e dispara **Build and Release**, que testa,
    monta o bundle `atlas-server-vX.Y.Z.tar.gz`, assina o `SHA256SUMS` com a
    identidade OIDC do GitHub e publica tudo na GitHub Release.
+   A mesma release inclui `atlas-vX.Y.Z.pyz`, o cliente MCP portátil instalado
+   nas máquinas dos usuários pelo launcher `hive`.
 2. Rode **Deploy Atlas library** com a mesma tag. O job exige que o bundle, o
    `SHA256SUMS` e o bundle de assinatura estejam publicados, conecta por SSH e
    chama `hive-atlas-pull-release`.
@@ -92,9 +94,81 @@ com CA/túnel válidos e usar um token individual, como o §12 do
 
 ## `hive install atlas`
 
-Objetivo: um launcher `hive` único (gerenciador de pacotes da Hive) que instala
-qualquer componente em um comando, colapsando o fluxo atual do hive_instance
-(clonar repo + credenciais à mão + `./hive install`).
+O launcher de produção é o [`hive_cli`](../../hive_cli/README.md). Ele instala o
+Atlas da mesma origem fixa e pelo mesmo caminho de verificação Sigstore do
+Mind. A release do Atlas publica um **zipapp** `atlas-vX.Y.Z.pyz`: fonte Python,
+biblioteca local e identidade (`version`, SHA completo de `revision`) em um
+arquivo portátil. Requer **Python 3.10 ou superior** no PATH (`python3` ou
+`python`; no Windows também `py -3`). Não usa `pip` nem extrai o pacote.
+
+Depois de publicar as alterações nos dois repositórios e gerar releases novas:
+
+```bash
+hive update                            # atualiza o launcher e os produtos instalados
+hive install atlas                     # última release com o cliente .pyz
+hive install atlas --version vX.Y.Z    # ou uma versão específica
+hive atlas version --json
+hive version
+hive version --json
+hive atlas                             # MCP stdio; espera mensagens do agente
+```
+
+O launcher valida a identidade OIDC fixa do workflow da tag, a assinatura do
+`SHA256SUMS` e o SHA-256 do `.pyz`, depois roda `version --json` e exige a mesma
+tag solicitada. Uma falha mantém a versão anterior ativa. O comando de versão
+não precisa de licença nem de Qdrant/Ollama; o início do MCP continua aplicando
+o gate de licença. Releases antigas contendo só o bundle do servidor não podem
+ser instaladas como cliente.
+
+```bash
+hive update atlas --check
+hive update atlas
+hive rollback atlas
+hive uninstall atlas
+```
+
+`hive version` mostra o Atlas ao lado do Mind e do launcher, inclusive a versão
+anterior e a atualização conhecida. `hive atlas` inicia o pacote ativo com o
+Python em modo isolado; as credenciais e configurações `QDRANT_*`, `OLLAMA_*`,
+`EMBEDDING_MODEL` e `ATLAS_*` continuam vindo do ambiente.
+
+### Registrar no agente
+
+Configure o comando do MCP como o caminho absoluto retornado por `command -v hive`,
+com argumentos `["atlas"]`. O caminho do launcher fica estável após updates.
+O `hive setup` atual registra o Mind; o Atlas deve ser cadastrado separadamente.
+
+Claude (`.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "hive_atlas": {
+      "command": "/caminho/absoluto/.hive/bin/hive",
+      "args": ["atlas"]
+    }
+  }
+}
+```
+
+Codex (`config.toml`, mesclar com a configuração existente):
+
+```toml
+[mcp_servers.hive_atlas]
+command = "/caminho/absoluto/.hive/bin/hive"
+args = ["atlas"]
+```
+
+Sem credencial do Qdrant, o MCP usa a biblioteca local incluída no pacote.
+No cliente instalado, o feedback persiste em `~/.hive/atlas/feedback.jsonl`
+(ou `$HIVE_HOME/atlas/feedback.jsonl`). `ATLAS_FEEDBACK_FILE` permite definir
+outro destino; o feedback não fica dentro da release e sobrevive aos updates.
+
+### Desenvolvimento no checkout
+
+O `bin/hive` deste repositório é a prova de conceito local. Ele registra o MCP
+diretamente deste checkout; a distribuição de produção é responsabilidade do
+launcher `hive_cli`.
 
 ```bash
 bin/hive install atlas --local                 # modo dev: registra o MCP deste checkout
@@ -103,21 +177,20 @@ bin/hive install atlas --local --require-license
 ```
 
 - `--local` registra o MCP a partir do checkout (pula download de release).
-- Sem `--local`, o caminho de release assinada é **fail-closed** enquanto
-  `atlas-release.json` tiver `version: UNSET` — igual ao inicializador do
-  hive_instance. O download/verificação de release assinada é o TODO(release).
-- O comando auto-registra a entrada do MCP no `.mcp.json` do cliente
-  (Claude Code / Codex), sem edição manual.
+- Sem `--local`, este script recusa a instalação; use o launcher de produção.
+- O comando mescla a entrada do MCP no `.mcp.json` do Claude Code.
 
-Manifesto: [`atlas-release.json`](../atlas-release.json) (esquema espelhando
-`hive_instance/hive-release.json`: `repository`, `version`, `require_signature`).
+[`atlas-release.json`](../atlas-release.json) continua sendo o manifesto da
+prova de conceito local. Ele não determina a origem ou a versão no launcher de
+produção, que usa o registro fixo em `hive_cli/internal/registry`.
 
-### Decisão em aberto
+Para montar e testar o cliente localmente, sem publicar nem assinar:
 
-O launcher unificado é **evolução do hive_instance** (que já tem
-`install/doctor/validate/update`) ou um **bootstrap novo e mínimo**? Vale para
-toda a Hive; o Atlas é só o primeiro consumidor limpo. O `bin/hive` aqui é a
-prova de conceito do subcomando `install atlas`.
+```bash
+python3 scripts/build_client_release.py --version v0.0.0 --revision "$(git rev-parse HEAD)"
+python3 -I dist/atlas-v0.0.0.pyz version --json
+python3 -m pytest -q tests/test_client_release.py
+```
 
 ## Licenciamento
 
