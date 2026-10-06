@@ -21,10 +21,26 @@ nem toca o Mind.
   (3.10+), além do Qdrant/Ollama do `hive_mind` já no ar.
 - As credenciais vêm do `hive_mind`: `/srv/hive-private/admin.key` (a admin key,
   usada como `api-key`) e `/srv/hive-private/ca.crt` (a CA do Qdrant TLS). Para
-  repositório privado, um token GitHub com **Contents: read** em
+  repositório privado, um token GitHub com acesso a **H-I-V-E-Tec/hive_atlas** e
+  permissão **Contents: read** em
   `/srv/hive-private/github-release.token` (root:root `0600`).
+  O mesmo arquivo usado pelo `api-hive-center` pode ser reaproveitado, desde
+  que o token também tenha acesso ao Atlas. O `GITHUB_TOKEN` do workflow não
+  é transmitido ao servidor.
 - Overrides opcionais em `/srv/hive-private/atlas.env` (root:root `0600`), a
   partir de [`deploy/atlas.env.example`](../deploy/atlas.env.example).
+
+O bootstrap consulta a release pela API do GitHub e baixa cada asset pelo ID
+com `Accept: application/octet-stream`, como o `api-hive-center`. A URL
+`github.com/.../releases/download/...` pode retornar `404` para releases privadas
+mesmo com um token válido. Depois de atualizar este script, recopie-o para
+`/usr/local/sbin/hive-atlas-pull-release` no servidor; ele não é atualizado pelo
+workflow. Um `404` na **consulta da API** indica tag inexistente ou token
+ausente, inválido ou sem acesso ao repositório.
+
+O fluxo de download e verificação tem teste próprio, sem rede nem deploy real:
+`bash deploy/test_pull_server_release.sh`. Ele cobre API autenticada, token
+ausente, metadados e assets inválidos e falhas de assinatura/checksum.
 
 ### Publicar e implantar
 
@@ -102,6 +118,12 @@ arquivo portátil. Requer **Python 3.10 ou superior** no PATH (`python3` ou
 `python`; no Windows também `py -3`). Não usa `pip` nem extrai o pacote.
 
 Depois de publicar as alterações nos dois repositórios e gerar releases novas:
+
+Como o repositório do Atlas é privado, a instalação pelo launcher exige
+`GH_TOKEN` (ou `GITHUB_TOKEN`) no ambiente, com **Contents: read** e acesso ao
+`H-I-V-E-Tec/hive_atlas`. Com esse token, o launcher também usa a API de assets.
+O token do arquivo do servidor não é transmitido à máquina do usuário. Depois
+de instalar, `hive atlas` não precisa da credencial GitHub.
 
 ```bash
 hive update                            # atualiza o launcher e os produtos instalados

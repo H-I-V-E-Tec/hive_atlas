@@ -40,6 +40,8 @@ jobs:
           bash -n deploy/deploy_server.sh
           bash -n deploy/pull_server_release.sh
           bash deploy/test_deploy_server.sh
+          bash -n deploy/test_pull_server_release.sh
+          bash deploy/test_pull_server_release.sh
 
   client_portability:
     name: MCP client (${{ matrix.os }})
