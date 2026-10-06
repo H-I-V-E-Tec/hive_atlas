@@ -1,0 +1,89 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  create_release:
+    name: Sign and publish server bundle
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate immutable version tag
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          test "$(git rev-list -n 1 "$RELEASE_VERSION")" = "$GITHUB_SHA"
+
+      - name: Create server bundle and checksums
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          printf '%s\n' "$GITHUB_SHA" > REVISION
+          # O bundle do servidor leva só o que o deploy precisa para provisionar
+          # a collection e popular a biblioteca (fonte Python stdlib + fichas).
+          tar --sort=name --owner=0 --group=0 --numeric-owner \
+            -czf "dist/atlas-server-${VERSION}.tar.gz" \
+            REVISION \
+            atlas \
+            signals/core.json \
+            deploy/deploy_server.sh \
+            deploy/atlas.env.example \
+            scripts/provision_qdrant.sh
+          # O deploy_server.sh precisa estar executável dentro do bundle.
+          tar -tzf "dist/atlas-server-${VERSION}.tar.gz" | grep -Fx deploy/deploy_server.sh
+          rm REVISION
+          printf 'version=%s\ncommit=%s\n' "$VERSION" "$GITHUB_SHA" > dist/SOURCE.txt
+          (cd dist && sha256sum * > SHA256SUMS)
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
+        with:
+          cosign-release: v2.5.2
+
+      - name: Sign release checksums with GitHub OIDC
+        # Dois bundles do mesmo SHA256SUMS: o formato legado do cosign é lido
+        # por deploy/pull_server_release.sh; o bundle Sigstore padrão é o que o
+        # launcher (sigstore-go) verifica, como no hive_mind.
+        run: |
+          cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+          cosign sign-blob --yes --new-bundle-format --bundle dist/SHA256SUMS.sigstore-bundle.json dist/SHA256SUMS
+          cosign verify-blob --new-bundle-format --bundle dist/SHA256SUMS.sigstore-bundle.json \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            dist/SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Hive Atlas ${{ github.ref_name }}
+          files: dist/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true

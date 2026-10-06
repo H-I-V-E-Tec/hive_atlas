@@ -1,5 +1,53 @@
 # Deploy e licenciamento
 
+## Deploy pela release assinada (produção)
+
+Fluxo automatizado, espelhando o do `hive_mind`: publica uma release assinada e
+pede ao servidor que a baixe, verifique e publique a biblioteca no Qdrant. O
+Atlas reusa o **mesmo** Qdrant/Ollama do `hive_mind`; o deploy só garante a
+collection transversal `atlas_signals_v01` e roda `atlas.push`. Não sobe serviço
+nem toca o Mind.
+
+### Preparação única (servidor)
+
+- Configure o environment `production` no GitHub com os secrets `DEPLOY_HOST`,
+  `DEPLOY_PORT`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` e `DEPLOY_KNOWN_HOSTS`. O usuário
+  SSH precisa poder executar, via `sudo` sem senha, somente
+  `/usr/local/sbin/hive-atlas-pull-release`.
+- Instale [`deploy/pull_server_release.sh`](../deploy/pull_server_release.sh) como
+  `/usr/local/sbin/hive-atlas-pull-release` (root:root, `0755`). Ele não é
+  atualizado automaticamente; recopie-o quando mudar.
+- O servidor precisa de `curl`, `cosign`, `jq`, `sha256sum`, `tar` e `python3`
+  (3.10+), além do Qdrant/Ollama do `hive_mind` já no ar.
+- As credenciais vêm do `hive_mind`: `/srv/hive-private/admin.key` (a admin key,
+  usada como `api-key`) e `/srv/hive-private/ca.crt` (a CA do Qdrant TLS). Para
+  repositório privado, um token GitHub com **Contents: read** em
+  `/srv/hive-private/github-release.token` (root:root `0600`).
+- Overrides opcionais em `/srv/hive-private/atlas.env` (root:root `0600`), a
+  partir de [`deploy/atlas.env.example`](../deploy/atlas.env.example).
+
+### Publicar e implantar
+
+1. Na aba **Actions**, rode **Start release** a partir de `master` com uma tag
+   nova `vX.Y.Z`. Ela cria a tag e dispara **Build and Release**, que testa,
+   monta o bundle `atlas-server-vX.Y.Z.tar.gz`, assina o `SHA256SUMS` com a
+   identidade OIDC do GitHub e publica tudo na GitHub Release.
+2. Rode **Deploy Atlas library** com a mesma tag. O job exige que o bundle, o
+   `SHA256SUMS` e o bundle de assinatura estejam publicados, conecta por SSH e
+   chama `hive-atlas-pull-release`.
+3. O servidor baixa, **verifica assinatura e checksum**, extrai e roda
+   `deploy_server.sh`: sonda a dimensão do modelo, cria a collection se faltar,
+   popula com `atlas.push` e confirma que a collection ficou com pontos antes de
+   promover a release em `/opt/hive-atlas/current`.
+
+Sem acesso ao servidor e aos secrets, dá para validar workflows, empacotamento e
+scripts localmente (`bash deploy/test_deploy_server.sh`), mas a primeira
+implantação real precisa de verificação operacional própria.
+
+A emissão de um token `rw` com escopo só da collection do Atlas (em vez de usar a
+admin key diretamente no push) fica como refinamento de menor privilégio — a
+lógica já existe em [`scripts/provision_qdrant.sh`](../scripts/provision_qdrant.sh).
+
 ## Subir a biblioteca no servidor do hive_mind (lab local)
 
 O Atlas reusa a MESMA caixa do hive_mind (Qdrant + Ollama + túnel/JWT), mas com
