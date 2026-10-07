@@ -41,6 +41,8 @@ CURRENT="$TEST_ROOT/install/current"
 EXPECTED="$TEST_ROOT/install/releases/v9.9.9"
 [ "$(readlink "$CURRENT")" = "$EXPECTED" ]
 [ -x "$EXPECTED/bin/hive-atlas" ]
+[ "$(stat -c '%a' "$EXPECTED")" = 755 ]
+[ "$(stat -c '%a' "$EXPECTED/bin")" = 755 ]
 [ -f "$EXPECTED/deploy/reader.key" ]
 grep -q 'atlas_signals_v01_v9_9_9_000000000000' "$EXPECTED/deploy/service.env"
 grep -q '"result":"healthy"' "$TEST_ROOT/history/history.jsonl"

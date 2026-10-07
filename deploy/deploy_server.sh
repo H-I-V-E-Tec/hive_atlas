@@ -65,11 +65,18 @@ if [ "$PREVIOUS" = "$TARGET" ]; then
 fi
 COLLECTION="${COLLECTION_BASE}_${VERSION//[.-]/_}_${REVISION:0:12}"
 [ "${#COLLECTION}" -le 128 ] || die "collection name exceeds 128 characters"
-install -d -m 0755 "$INSTALL_ROOT/releases" "$SYSTEMD_ROOT"
+install -d -m 0755 "$INSTALL_ROOT" "$INSTALL_ROOT/releases" "$SYSTEMD_ROOT"
 if [ -e "$TARGET" ]; then
   [ -f "$TARGET/REVISION" ] && [ "$(tr -d '\r\n' < "$TARGET/REVISION")" = "$REVISION" ] || die "version already exists with another revision"
 fi
+# With umask 077, install creates intermediate parents (such as TARGET) with
+# mode 0700 when they do not already exist.  The DynamicUser service must be
+# able to traverse every release directory, so create and normalize each
+# parent explicitly before installing the private files.
+install -d -m 0755 "$TARGET"
+chmod 0755 "$INSTALL_ROOT" "$INSTALL_ROOT/releases" "$TARGET"
 install -d -m 0755 "$TARGET/bin" "$TARGET/deploy" "$TARGET/signals"
+chmod 0755 "$TARGET/bin" "$TARGET/deploy" "$TARGET/signals"
 install -m 0644 "$SOURCE_ROOT/REVISION" "$TARGET/REVISION"
 install -m 0755 "$SOURCE_ROOT/bin/hive-atlas" "$TARGET/bin/hive-atlas"
 install -m 0644 "$SOURCE_ROOT/signals/core.json" "$TARGET/signals/core.json"
