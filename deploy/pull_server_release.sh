@@ -6,13 +6,15 @@ set -Eeuo pipefail
 umask 077
 
 REPOSITORY="${HIVE_ATLAS_GITHUB_REPOSITORY:-H-I-V-E-Tec/hive_atlas}"
-TOKEN_FILE="${HIVE_ATLAS_GITHUB_TOKEN_FILE:-/srv/hive-private/github-release.token}"
+# Public releases need no GitHub credential. An explicit file supports a future
+# private origin without borrowing the Center's credential by default.
+TOKEN_FILE="${HIVE_ATLAS_GITHUB_TOKEN_FILE:-}"
 VERSION="${1:-}"
 
 die() { printf 'ERRO: %s\n' "$*" >&2; exit 1; }
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || die "uso: hive-atlas-pull-release vX.Y.Z"
 [ "$(id -u)" -eq 0 ] || die "execute como root"
-for command in curl cosign sha256sum tar; do
+for command in curl cosign jq sha256sum tar; do
   command -v "$command" >/dev/null || die "$command não encontrado"
 done
 
@@ -21,7 +23,8 @@ cleanup() { rm -rf -- "$TEMPORARY"; }
 trap cleanup EXIT
 
 CURL_CONFIG="$TEMPORARY/curl.conf"
-printf '%s\n' 'fail' 'location' 'silent' 'show-error' 'proto = "=https"' 'tlsv1.2' > "$CURL_CONFIG"
+printf '%s\n' 'fail' 'location' 'silent' 'show-error' \
+  'proto = "=https"' 'proto-redir = "=https"' 'tlsv1.2' > "$CURL_CONFIG"
 if [ -f "$TOKEN_FILE" ]; then
   [ ! -L "$TOKEN_FILE" ] || die "token GitHub não pode ser link simbólico"
   TOKEN_MODE="$(stat -c '%a' "$TOKEN_FILE")"
@@ -33,10 +36,30 @@ if [ -f "$TOKEN_FILE" ]; then
   unset TOKEN
 fi
 
-BASE="https://github.com/$REPOSITORY/releases/download/$VERSION"
+API_BASE="https://api.github.com/repos/$REPOSITORY"
 ASSET="atlas-server-$VERSION.tar.gz"
+RELEASE_METADATA="$TEMPORARY/release.json"
+
+# Releases privadas: o token autentica a API, não a URL de download do browser.
+# Mesmo fluxo de deploy/pull-release.sh do api-hive-center.
+if ! curl --config "$CURL_CONFIG" \
+  --header 'Accept: application/vnd.github+json' \
+  --output "$RELEASE_METADATA" "$API_BASE/releases/tags/$VERSION"; then
+  die "release $VERSION não está acessível ao servidor; confira a tag e o token GitHub em $TOKEN_FILE (Contents: read no $REPOSITORY)"
+fi
+jq -e --arg version "$VERSION" '.tag_name == $version and .draft == false' \
+  "$RELEASE_METADATA" >/dev/null || die "metadados inválidos para a release $VERSION"
+
 for file in "$ASSET" SHA256SUMS SHA256SUMS.sigstore.json; do
-  curl --config "$CURL_CONFIG" --output "$TEMPORARY/$file" "$BASE/$file"
+  asset_id="$(jq -er --arg name "$file" \
+    '[.assets[] | select(.name == $name and .state == "uploaded") | .id] |
+     if length == 1 then .[0] else empty end' "$RELEASE_METADATA")" || die "asset $file ausente ou duplicado na release $VERSION"
+  [[ "$asset_id" =~ ^[0-9]+$ ]] || die "ID inválido para o asset $file"
+  if ! curl --config "$CURL_CONFIG" \
+    --header 'Accept: application/octet-stream' \
+    --output "$TEMPORARY/$file" "$API_BASE/releases/assets/$asset_id"; then
+    die "falha ao baixar o asset $file da release $VERSION; confira o acesso do token GitHub"
+  fi
 done
 
 cosign verify-blob \

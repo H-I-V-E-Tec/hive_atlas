@@ -3,7 +3,7 @@
 try:
     from ._build import REVISION, VERSION
 except ModuleNotFoundError:
-    VERSION = "dev"
+    VERSION = "v2.0.0-dev"
     REVISION = "unknown"
 
 

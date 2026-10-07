@@ -3,13 +3,38 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [master, main]
+    branches: [master, main, "release/**"]
   workflow_call:
 
 permissions:
   contents: read
 
 jobs:
+  go:
+    name: Go runtime (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-2022]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version-file: go.mod
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: go run ./cmd/hive-atlas eval
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: '3.12'
+      - run: go build -o atlas-parity ./cmd/hive-atlas
+        if: runner.os != 'Windows'
+      - run: python scripts/check_go_parity.py --binary ./atlas-parity
+        if: runner.os != 'Windows'
   test:
     name: Test (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
@@ -40,6 +65,9 @@ jobs:
           bash -n deploy/deploy_server.sh
           bash -n deploy/pull_server_release.sh
           bash deploy/test_deploy_server.sh
+          bash -n deploy/test_pull_server_release.sh
+          bash deploy/test_pull_server_release.sh
+          python -m py_compile scripts/build_go_release.py
 
   client_portability:
     name: MCP client (${{ matrix.os }})

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .engine import Engine
 from .evidence import Corpus, Evidence
+from .sanitize import has_secret
 
 
 @dataclass
@@ -31,20 +32,33 @@ class LineAdapter:
 
     program_id: str = ""
     asset: str = ""
+    rejected_program: int = 0
+    rejected_secret: int = 0
+    rejected_invalid: int = 0
 
     def to_event(self, line: str, ref: str) -> Evidence | None:
         s = line.strip()
         if not s:
             return None
+        if has_secret(s):
+            self.rejected_secret += 1
+            return None
         if s[0] == "{":
             try:
                 d = json.loads(s)
+                if self.program_id and d.get("program_id") and d["program_id"] != self.program_id:
+                    self.rejected_program += 1
+                    return None
+                if d.get("schema_version", 1) != 1:
+                    self.rejected_invalid += 1
+                    return None
                 d.setdefault("ref", ref)
                 d.setdefault("program_id", self.program_id)
                 d.setdefault("asset", self.asset)
                 return Evidence.from_dict(d)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
+            except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
+                self.rejected_invalid += 1
+                return None
         return Evidence(kind="nota", value=s, ref=ref,
                         program_id=self.program_id, asset=self.asset)
 

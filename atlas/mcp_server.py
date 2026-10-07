@@ -29,7 +29,8 @@ from .retrieval import LexicalRetriever
 from .version import VERSION
 
 ROOT = Path(__file__).resolve().parent.parent
-PROTOCOL_VERSION = "2024-11-05"
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
 
 TOOLS = [
     {
@@ -145,8 +146,9 @@ class Server:
         rid = req.get("id")
         try:
             if method == "initialize":
+                requested = req.get("params", {}).get("protocolVersion")
                 result = {
-                    "protocolVersion": PROTOCOL_VERSION,
+                    "protocolVersion": requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION,
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": "hive-atlas", "version": VERSION},
                 }

@@ -4,3 +4,6 @@ __pycache__/
 .atlas/
 *.json.tmp
 dist/
+/atlas-parity
+/bin/hive-atlas
+/bin/hive-atlas.exe
