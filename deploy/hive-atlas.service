@@ -1,0 +1,28 @@
+[Unit]
+Description=Hive Atlas remote MCP service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=hive-atlas
+StateDirectoryMode=0700
+Environment=ATLAS_STATE_DIR=/var/lib/hive-atlas
+ExecStart=/opt/hive-atlas/current/bin/hive-atlas serve
+EnvironmentFile=/opt/hive-atlas/current/deploy/service.env
+LoadCredential=qdrant-key:/opt/hive-atlas/current/deploy/reader.key
+LoadCredential=qdrant-ca:/opt/hive-atlas/current/deploy/ca.crt
+Environment=QDRANT_API_KEY_FILE=%d/qdrant-key
+Environment=QDRANT_TLS_CA_FILE=%d/qdrant-ca
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadOnlyPaths=/opt/hive-atlas
+
+[Install]
+WantedBy=multi-user.target

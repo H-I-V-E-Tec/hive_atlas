@@ -1,179 +1,179 @@
-# Deploy e licenciamento
+# Deploy, cliente Go e autorização
 
-## Deploy pela release assinada (produção)
+## Desenho operacional
 
-Fluxo automatizado, espelhando o do `hive_mind`: publica uma release assinada e
-pede ao servidor que a baixe, verifique e publique a biblioteca no Qdrant. O
-Atlas reusa o **mesmo** Qdrant/Ollama do `hive_mind`; o deploy só garante a
-collection transversal `atlas_signals_v01` e roda `atlas.push`. Não sobe serviço
-nem toca o Mind.
+O serviço oferece MCP Streamable HTTP em `<center>/atlas/mcp`. O agente usa esse
+endpoint diretamente ou a ponte stdio `hive atlas`, que encaminha mensagens MCP
+com a sessão emitida pelo único `hive login`. Todas as ferramentas executam no
+servidor. Sem sessão ou permissão, o modo normal falha; `--offline` seleciona
+explicitamente o motor embutido para desenvolvimento.
 
-### Preparação única (servidor)
+Observe recebe evidência sanitizada por HTTPS, avalia sem persistir os eventos e
+responde com o board `[UNTESTED]`. Feedback é persistido por membro no serviço,
+fora da biblioteca de sinais. O watcher filtra os eventos localmente e chama
+observe remoto; grava apenas o board na máquina do usuário.
 
-- Configure o environment `production` no GitHub com os secrets `DEPLOY_HOST`,
-  `DEPLOY_PORT`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` e `DEPLOY_KNOWN_HOSTS`. O usuário
-  SSH precisa poder executar, via `sudo` sem senha, somente
-  `/usr/local/sbin/hive-atlas-pull-release`.
-- Instale [`deploy/pull_server_release.sh`](../deploy/pull_server_release.sh) como
-  `/usr/local/sbin/hive-atlas-pull-release` (root:root, `0755`). Ele não é
-  atualizado automaticamente; recopie-o quando mudar.
-- O servidor precisa de `curl`, `cosign`, `jq`, `sha256sum`, `tar` e `python3`
-  (3.10+), além do Qdrant/Ollama do `hive_mind` já no ar.
-- As credenciais vêm do `hive_mind`: `/srv/hive-private/admin.key` (a admin key,
-  usada como `api-key`) e `/srv/hive-private/ca.crt` (a CA do Qdrant TLS). Para
-  repositório privado, um token GitHub com acesso a **H-I-V-E-Tec/hive_atlas** e
-  permissão **Contents: read** em
-  `/srv/hive-private/github-release.token` (root:root `0600`).
-  O mesmo arquivo usado pelo `api-hive-center` pode ser reaproveitado, desde
-  que o token também tenha acesso ao Atlas. O `GITHUB_TOKEN` do workflow não
-  é transmitido ao servidor.
-- Overrides opcionais em `/srv/hive-private/atlas.env` (root:root `0600`), a
-  partir de [`deploy/atlas.env.example`](../deploy/atlas.env.example).
+## Preparação do servidor
 
-O bootstrap consulta a release pela API do GitHub e baixa cada asset pelo ID
-com `Accept: application/octet-stream`, como o `api-hive-center`. A URL
-`github.com/.../releases/download/...` pode retornar `404` para releases privadas
-mesmo com um token válido. Depois de atualizar este script, recopie-o para
-`/usr/local/sbin/hive-atlas-pull-release` no servidor; ele não é atualizado pelo
-workflow. Um `404` na **consulta da API** indica tag inexistente ou token
-ausente, inválido ou sem acesso ao repositório.
+- Qdrant/Ollama já disponíveis. O deploy do Mind precisa preceder o Center
+  para aceitar a sessão compartilhada; não é necessário reiniciar os bancos.
+- `curl`, `cosign`, `jq`, `sha256sum`, `tar`, `systemd` e `sed`. O runtime Atlas
+  é um binário Go estático; o servidor não precisa instalar dependências Python.
+- `/srv/hive-private/admin.key` e `/srv/hive-private/ca.crt` existentes. A admin
+  key é usada somente pelo deploy/push e para emitir a chave restrita de leitura.
+- `/srv/hive-private/atlas.env` (root:root, `0600`), conforme
+  [atlas.env.example](../deploy/atlas.env.example). Confirme a interface gateway
+  do Compose do Center: `ATLAS_HTTP_ADDR=172.28.0.1:8444` e o mesmo endereço em
+  `ATLAS_UPSTREAM`. Para outra rede, ajuste ambos. O healthcheck usa essa interface.
+- Instale [pull_server_release.sh](../deploy/pull_server_release.sh) como
+  `/usr/local/sbin/hive-atlas-pull-release` (root:root, `0755`). O helper é
+  administrado separadamente e precisa ser recopiado quando mudar.
+- No GitHub, environment `production` com `DEPLOY_HOST`, `DEPLOY_PORT`,
+  `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`. O usuário SSH só precisa
+  de sudo sem senha para o helper root acima.
 
-O fluxo de download e verificação tem teste próprio, sem rede nem deploy real:
-`bash deploy/test_pull_server_release.sh`. Ele cobre API autenticada, token
-ausente, metadados e assets inválidos e falhas de assinatura/checksum.
+O repositório e as releases continuam públicos. O download consulta a API da
+release e usa os IDs dos assets, sem token GitHub por padrão. O helper mantém
+suporte opcional a `HIVE_ATLAS_GITHUB_TOKEN_FILE` para uma futura origem privada,
+mas não lê automaticamente a credencial usada pelo Center.
 
-### Publicar e implantar
+## Preparação única para v2.0.0
 
-1. Na aba **Actions**, rode **Start release** a partir de `master` com uma tag
-   nova `vX.Y.Z`. Ela cria a tag e dispara **Build and Release**, que testa,
-   monta o bundle `atlas-server-vX.Y.Z.tar.gz`, assina o `SHA256SUMS` com a
-   identidade OIDC do GitHub e publica tudo na GitHub Release.
-   A mesma release inclui `atlas-vX.Y.Z.pyz`, o cliente MCP portátil instalado
-   nas máquinas dos usuários pelo launcher `hive`.
-2. Rode **Deploy Atlas library** com a mesma tag. O job exige que o bundle, o
-   `SHA256SUMS` e o bundle de assinatura estejam publicados, conecta por SSH e
-   chama `hive-atlas-pull-release`.
-3. O servidor baixa, **verifica assinatura e checksum**, extrai e roda
-   `deploy_server.sh`: sonda a dimensão do modelo, cria a collection se faltar,
-   popula com `atlas.push` e confirma que a collection ficou com pontos antes de
-   promover a release em `/opt/hive-atlas/current`.
-
-Sem acesso ao servidor e aos secrets, dá para validar workflows, empacotamento e
-scripts localmente (`bash deploy/test_deploy_server.sh`), mas a primeira
-implantação real precisa de verificação operacional própria.
-
-A emissão de um token `rw` com escopo só da collection do Atlas (em vez de usar a
-admin key diretamente no push) fica como refinamento de menor privilégio — a
-lógica já existe em [`scripts/provision_qdrant.sh`](../scripts/provision_qdrant.sh).
-
-## Subir a biblioteca no servidor do hive_mind (lab local)
-
-O Atlas reusa a MESMA caixa do hive_mind (Qdrant + Ollama + túnel/JWT), mas com
-uma **collection própria transversal** (`atlas_signals_v01`, sem `program_id`).
-O MCP continua **local**; só os dados ficam no servidor.
+O workflow chama um helper root já instalado; o bundle não atualiza esse helper.
+Copie `deploy/pull_server_release.sh` desta branch para o servidor como
+`/tmp/hive-atlas-pull-release.sh` e execute:
 
 ```bash
-# 1. sobe Qdrant + Ollama (compose do hive_mind) e puxa o modelo
-cd ../hive_mind && docker compose up -d qdrant ollama
-docker compose exec ollama ollama pull nomic-embed-text
-
-# 2. cria a collection do Atlas e emite tokens (usa a admin key do hive_mind)
-cd ../hive_atlas
-HIVE_QDRANT_ADMIN_KEY=... scripts/provision_qdrant.sh
-# → imprime os export para popular (token rw) e o token r para o MCP
-
-# 3. popula a biblioteca (rw)
-export QDRANT_URL=http://127.0.0.1:6333 ATLAS_COLLECTION=atlas_signals_v01
-export OLLAMA_URL=http://127.0.0.1:11434 EMBEDDING_MODEL=nomic-embed-text
-export QDRANT_API_KEY=<token rw>
-python3 -m atlas.push
-
-# 4. registra o MCP apontando para o Qdrant (o token vem do ambiente, não do arquivo)
-bin/hive install atlas --local \
-  --qdrant-url http://127.0.0.1:6333 --ollama-url http://127.0.0.1:11434 \
-  --collection atlas_signals_v01 --model nomic-embed-text
-# depois, no shell que sobe o cliente:  export QDRANT_API_KEY=<token r>
+sudo install -o root -g root -m 0755 /tmp/hive-atlas-pull-release.sh \
+  /usr/local/sbin/hive-atlas-pull-release
 ```
 
-Detecção de backend (`atlas/mcp_server.py`): com `QDRANT_API_KEY` no ambiente, o
-MCP carrega a biblioteca do Qdrant + recuperação semântica; sem ele, cai no
-`signals/*.json` local + recuperação léxica (mantém dev e testes offline). Falha
-de conexão ao Qdrant também cai para o local, com aviso.
+Confira `/srv/hive-private/atlas.env` (root:root, modo `0600`):
+`HIVE_CENTER_URL=https://hive-center.duckdns.org`,
+`ATLAS_HTTP_ADDR=172.28.0.1:8444` e
+`ATLAS_HEALTH_URL=http://172.28.0.1:8444/healthz`, ou os valores da sua rede.
+Não sobrescreva um arquivo existente com o exemplo. O serviço precisa da CA e
+admin key já provisionadas em `/srv/hive-private`; o deploy emite automaticamente
+a credencial de leitura. `ATLAS_UPSTREAM` em `/opt/hive-center/.env` precisa apontar
+para a mesma interface; se o gateway padrão for o correto, o Compose aplica o
+valor padrão sem precisar editar esse arquivo. Restrinja 8444 à rede interna.
 
-Migração para o **remoto** (atlasgrid.site): trocar `QDRANT_URL` por `https://…`
-com CA/túnel válidos e usar um token individual, como o §12 do
-`guias/CONFIGURAR_QDRANT_E_CODEX.md`. Nunca publicar 6333/6334 em `0.0.0.0`.
+O deploy instala o unit, cria `/var/lib/hive-atlas`, publica a biblioteca e
+inicia o MCP. Não é preciso criar usuário, instalar Go/Python, emitir JWT manual
+ou executar `push` no servidor. Não há nova migration de banco neste incremento;
+o deploy do Center executa as migrations pendentes normalmente.
 
----
+Depois dessa preparação, merge/publicação e deploy nas versões:
+Mind `v1.5.0` → API Center `v1.3.0` → Atlas `v2.0.0`.
+Publique também o launcher `v1.2.0`; no computador execute `hive update`,
+`hive update mind atlas`, `hive login`, `hive setup atlas --client codex` e
+`hive doctor atlas`. O usuário precisa de `product.atlas` no seu perfil do Center.
+Se Atlas ainda não estiver instalado, use `hive install atlas`.
+O frontend existente é reaproveitado pelo deploy da API; não há release web nova
+necessária para a sessão compartilhada.
 
-# Deploy do MCP e licenciamento
+## Publicar e implantar
 
-## `hive install atlas`
+1. Atualize primeiro o serviço Mind para aceitar `aud=hive` e manter os tokens
+   legados. Atualize o Center para emitir a sessão compartilhada, depois o
+   launcher e o Atlas. Tokens legados `mind`/`atlas` continuam aceitos no respectivo
+   serviço durante a transição; o novo login solicita somente `hive`.
+2. Em `master`, execute **Start release** com uma tag nova (por exemplo `v2.0.0`).
+   **Build and Release** executa a CI e publica os cinco clientes nativos,
+   `atlas-server-vX.Y.Z.tar.gz`, `.pyz` de compatibilidade, `SOURCE.txt`,
+   `SHA256SUMS` e os dois formatos de assinatura Sigstore.
+3. Execute **Deploy Atlas library** com a mesma tag. O helper baixa os assets,
+   valida a identidade OIDC do workflow da tag e o checksum do bundle.
+4. O deploy confere versão/revisão do executável, publica uma collection imutável
+   `<ATLAS_COLLECTION>_<tag>_<revision12>` e exige a contagem esperada de fichas.
+   Cada payload registra modelo e dimensão; mistura de modelos é recusada.
+5. Emite um JWT Qdrant `r` restrito à collection (validade de um ano, renovado a
+   cada release), instala o unit e promove o symlink `current`.
+   O healthcheck exige a nova versão, fichas presentes e busca semântica funcional.
+   Falha de push mantém a versão anterior; falha do serviço restaura o symlink
+   e o unit anteriores, com sua própria collection e credencial.
 
-O launcher de produção é o [`hive_cli`](../../hive_cli/README.md). Ele instala o
-Atlas da mesma origem fixa e pelo mesmo caminho de verificação Sigstore do
-Mind. A release do Atlas publica um **zipapp** `atlas-vX.Y.Z.pyz`: fonte Python,
-biblioteca local e identidade (`version`, SHA completo de `revision`) em um
-arquivo portátil. Requer **Python 3.10 ou superior** no PATH (`python3` ou
-`python`; no Windows também `py -3`). Não usa `pip` nem extrai o pacote.
+O unit usa `DynamicUser`, `LoadCredential`, filesystem protegido e nenhuma chave
+admin. `StateDirectory=hive-atlas` mantém feedback em `/var/lib/hive-atlas`, com
+modo `0700`, inclusive após updates/rollback; defina uma política de backup desse
+estado junto à operação do serviço. As credenciais por release e a CA ficam em `deploy/` como root `0600`,
+fora do Git/bundle público; o systemd as entrega ao serviço. A configuração
+não secreta é `deploy/service.env`. A API fica na interface privada do Center,
+atrás do HTTPS do proxy. `atlas serve` isolado usa `127.0.0.1:8444` por padrão.
 
-Depois de publicar as alterações nos dois repositórios e gerar releases novas:
+Uma versão já ativa e saudável é idempotente. Alterações de configuração exigem
+uma nova tag: não se reescreve a configuração da release ativa. Collections antigas
+são preservadas para rollback; esta entrega não faz sua remoção automática.
 
-Como o repositório do Atlas é privado, a instalação pelo launcher exige
-`GH_TOKEN` (ou `GITHUB_TOKEN`) no ambiente, com **Contents: read** e acesso ao
-`H-I-V-E-Tec/hive_atlas`. Com esse token, o launcher também usa a API de assets.
-O token do arquivo do servidor não é transmitido à máquina do usuário. Depois
-de instalar, `hive atlas` não precisa da credencial GitHub.
+## Proxy do Center
 
-```bash
-hive update                            # atualiza o launcher e os produtos instalados
-hive install atlas                     # última release com o cliente .pyz
-hive install atlas --version vX.Y.Z    # ou uma versão específica
-hive atlas version --json
-hive version
-hive version --json
-hive atlas                             # MCP stdio; espera mensagens do agente
-```
+A mudança coordenada em `api-hive-center/deploy` adiciona:
 
-O launcher valida a identidade OIDC fixa do workflow da tag, a assinatura do
-`SHA256SUMS` e o SHA-256 do `.pyz`, depois roda `version --json` e exige a mesma
-tag solicitada. Uma falha mantém a versão anterior ativa. O comando de versão
-não precisa de licença nem de Qdrant/Ollama; o início do MCP continua aplicando
-o gate de licença. Releases antigas contendo só o bundle do servidor não podem
-ser instaladas como cliente.
-
-```bash
-hive update atlas --check
-hive update atlas
-hive rollback atlas
-hive uninstall atlas
-```
-
-`hive version` mostra o Atlas ao lado do Mind e do launcher, inclusive a versão
-anterior e a atualização conhecida. `hive atlas` inicia o pacote ativo com o
-Python em modo isolado; as credenciais e configurações `QDRANT_*`, `OLLAMA_*`,
-`EMBEDDING_MODEL` e `ATLAS_*` continuam vindo do ambiente.
-
-### Registrar no agente
-
-Configure o comando do MCP como o caminho absoluto retornado por `command -v hive`,
-com argumentos `["atlas"]`. O caminho do launcher fica estável após updates.
-O `hive setup` atual registra o Mind; o Atlas deve ser cadastrado separadamente.
-
-Claude (`.mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "hive_atlas": {
-      "command": "/caminho/absoluto/.hive/bin/hive",
-      "args": ["atlas"]
-    }
-  }
+```caddyfile
+handle_path /atlas/* {
+    reverse_proxy {$ATLAS_UPSTREAM}
 }
 ```
 
-Codex (`config.toml`, mesclar com a configuração existente):
+`compose.yaml` passa `ATLAS_UPSTREAM` ao Caddy, com padrão `172.28.0.1:8444`.
+O Center emite JWT RS256 com `aud=hive`, sujeito do membro, perfis, expiração e
+permissões efetivas. O serviço valida JWKS/issuer/expiração/audiência e exige
+`product.atlas` em toda chamada MCP e REST. Um JWT compartilhado com somente
+`product.mind` é válido, mas recebe 403 no Atlas. O login de um usuário com acesso
+somente ao Atlas também funciona. Não é necessário alterar o frontend.
+
+O MCP valida Origin quando presente; a origem do Center é permitida por padrão.
+`ATLAS_ALLOWED_ORIGINS` permite origens adicionais separadas por espaço.
+POST retorna JSON; notificações aceitas retornam 202 sem corpo. O endpoint é
+stateless, sem IDs de sessão, GET/SSE permanente ou persistência de evidência.
+GET e DELETE autenticados retornam 405 conforme o transporte.
+
+## Launcher e instalação
+
+A versão atualizada do `hive_cli` prefere o asset Go listado no `SHA256SUMS`
+assinado. Para releases anteriores contendo somente `.pyz`, mantém o runtime
+Python. Um asset nativo listado, mas ausente/corrompido, gera erro; não cai para
+Python. Dispatch e rollback identificam o formato efetivamente instalado.
+A origem e a identidade Sigstore continuam fixas em `H-I-V-E-Tec/hive_atlas`.
+
+```bash
+hive update
+hive install atlas
+hive atlas version --json
+hive login
+hive setup atlas --client codex
+hive doctor atlas
+hive atlas
+hive update atlas --check
+hive update atlas
+hive rollback atlas
+```
+
+`hive login` e `hive logout` pertencem ao launcher e independem de instalar Mind
+ou Atlas. A sessão fica em `$HIVE_HOME/token` (padrão `~/.hive/token`) e a URL do
+Center em `$HIVE_HOME/center-url`, ambos com acesso privado. `hive login --check`
+valida assinatura e claims da sessão. `HIVE_TOKEN_FILE` e `HIVE_TOKEN` são opções
+compartilhadas de injeção. `hive setup atlas` e `hive doctor atlas` são atalhos
+para `hive atlas setup|doctor`. Não há token ou login específico do Atlas.
+
+As permissões são um retrato da emissão do JWT. Refaça `hive login` após alterar
+perfis. O prazo atual é de 12 horas; não foi acrescentado refresh/revogação
+imediata aos tokens já emitidos.
+
+`HIVE_CENTER_URL` ou `--center-url` define outro Center. A URL é lembrada após
+login, e o cliente também reconhece a URL salva pelo Mind. `HIVE_ATLAS_URL` ou
+`--atlas-url` substitui `<center>/atlas`. HTTP só é permitido em loopback;
+redirects de requisições autenticadas são recusados.
+
+## Registro manual no agente
+
+`hive atlas setup --client codex` mescla a tabela abaixo no TOML; `--config`
+permite um arquivo específico. Para Claude Code, `--client claude-code` usa
+`~/.claude.json`; para Claude Desktop, informe `--client claude-desktop --config`.
+O setup usa o caminho estável `HIVE_LAUNCHER` fornecido pelo launcher e registra
+`HIVE_HOME`, `HIVE_CENTER_URL` e `HIVE_ATLAS_URL` no ambiente da ponte, sem copiar
+o JWT. O exemplo mínimo abaixo usa as configurações padrão. Agentes HTTP
+podem usar diretamente `<center>/atlas/mcp` e o JWT compartilhado no Bearer.
 
 ```toml
 [mcp_servers.hive_atlas]
@@ -181,58 +181,32 @@ command = "/caminho/absoluto/.hive/bin/hive"
 args = ["atlas"]
 ```
 
-Sem credencial do Qdrant, o MCP usa a biblioteca local incluída no pacote.
-No cliente instalado, o feedback persiste em `~/.hive/atlas/feedback.jsonl`
-(ou `$HIVE_HOME/atlas/feedback.jsonl`). `ATLAS_FEEDBACK_FILE` permite definir
-outro destino; o feedback não fica dentro da release e sobrevive aos updates.
-
-### Desenvolvimento no checkout
-
-O `bin/hive` deste repositório é a prova de conceito local. Ele registra o MCP
-diretamente deste checkout; a distribuição de produção é responsabilidade do
-launcher `hive_cli`.
-
-```bash
-bin/hive install atlas --local                 # modo dev: registra o MCP deste checkout
-bin/hive install atlas --local --client ~/.../.mcp.json
-bin/hive install atlas --local --require-license
+```json
+{"mcpServers":{"hive_atlas":{"command":"/caminho/absoluto/.hive/bin/hive","args":["atlas"]}}}
 ```
 
-- `--local` registra o MCP a partir do checkout (pula download de release).
-- Sem `--local`, este script recusa a instalação; use o launcher de produção.
-- O comando mescla a entrada do MCP no `.mcp.json` do Claude Code.
-
-[`atlas-release.json`](../atlas-release.json) continua sendo o manifesto da
-prova de conceito local. Ele não determina a origem ou a versão no launcher de
-produção, que usa o registro fixo em `hive_cli/internal/registry`.
-
-Para montar e testar o cliente localmente, sem publicar nem assinar:
+## Verificação local
 
 ```bash
-python3 scripts/build_client_release.py --version v0.0.0 --revision "$(git rev-parse HEAD)"
-python3 -I dist/atlas-v0.0.0.pyz version --json
-python3 -m pytest -q tests/test_client_release.py
+go test -race ./...
+go vet ./...
+go run ./cmd/hive-atlas eval
+go build -o bin/hive-atlas ./cmd/hive-atlas
+python3 scripts/check_go_parity.py --binary bin/hive-atlas
+python3 -m pytest tests -q
+bash deploy/test_deploy_server.sh
+bash deploy/test_pull_server_release.sh
 ```
 
-## Licenciamento
+Os testes usam fixtures sintéticas: JWT/JWKS compartilhados compatíveis com o Center, MCP HTTP remoto,
+Qdrant/Ollama falsos, verificação de push e rollback sem systemd real.
+Eles verificam comportamento local; a implantação de uma nova release no servidor
+precisa ser executada e conferida pelos workflows de produção.
 
-Verificação **offline** no startup do MCP (`atlas/license.py`), fail-closed no
-modo comercial.
+## Referência Python e licença antiga
 
-| Env | Efeito |
-|---|---|
-| `ATLAS_REQUIRE_LICENSE=1` | Exige licença válida; sem ela o MCP recusa iniciar (exit 2). |
-| `ATLAS_LICENSE=<token>` | O token de licença. |
-| `ATLAS_LICENSE_KEY=<hex>` | Chave de verificação. |
-
-Modo interno/equipe (sem `ATLAS_REQUIRE_LICENSE`): acesso pela credencial de
-leitor já usada na Hive.
-
-**Nota de segurança:** a implementação atual usa HMAC-SHA256 (segredo simétrico)
-para ficar em stdlib puro. Em produção migrar para **assinatura assimétrica**
-(Ed25519 via `cryptography`), para o cliente verificar sem poder emitir licença.
-A interface `issue`/`verify` não muda.
-
-Ponto a desenhar cedo: **o que a licença destrava** (assentos, programas, acesso
-à biblioteca compartilhada hospedada) — define onde a biblioteca vive e como o
-MCP autentica.
+`atlas/`, `bin/hive` e `build_client_release.py` permanecem como referência,
+ferramentas do dojo e compatibilidade de distribuição. O runtime principal é Go.
+O gate opcional `ATLAS_REQUIRE_LICENSE=1` mantém a verificação HMAC da licença
+antiga durante a migração; ele é independente da autorização RS256 da API.
+Nenhuma chave HMAC é usada para autorizar acesso à biblioteca hospedada.

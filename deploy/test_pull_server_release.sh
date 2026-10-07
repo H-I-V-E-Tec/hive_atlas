@@ -74,7 +74,9 @@ while (($#)); do
 done
 printf '%s\n' "$url" >> "$HIVE_TEST_CURL_LOG"
 grep -Fq 'proto-redir = "=https"' "$config"
-if ! grep -Fq 'header = "Authorization: Bearer test_token_123"' "$config"; then
+if [ "${HIVE_TEST_PUBLIC:-0}" = 1 ]; then
+  ! grep -q 'Authorization:' "$config" || exit 5
+elif ! grep -Fq 'header = "Authorization: Bearer test_token_123"' "$config"; then
   printf 'curl: (22) The requested URL returned error: 404\n' >&2
   exit 22
 fi
@@ -121,6 +123,11 @@ run_pull > "$TEST_ROOT/success.log" 2>&1
 grep -Fq 'atlas-server-v1.2.3.tar.gz: OK' "$TEST_ROOT/success.log" || fail "checksum não foi conferido"
 grep -Fq test_token_123 "$TEST_ROOT/success.log" && fail "token apareceu no log"
 
+# The current public origin works without any GitHub credential.
+HIVE_TEST_PUBLIC=1 HIVE_ATLAS_GITHUB_TOKEN_FILE="" HIVE_TEST_INSTALLED="$TEST_ROOT/public-installed" \
+  run_pull > "$TEST_ROOT/public.log" 2>&1
+[ "$(cat "$TEST_ROOT/public-installed")" = installed ] || fail "public deploy was not called"
+
 HIVE_ATLAS_GITHUB_TOKEN_FILE="$TEST_ROOT/missing-token" \
   expect_failure missing-token 'confira a tag e o token GitHub'
 chmod 0644 "$TEST_ROOT/token"
@@ -144,4 +151,4 @@ HIVE_TEST_SIGNATURE_FAIL=1 expect_failure signature 'signature rejected'
 printf 'tampered\n' >> "$TEST_ROOT/fixture/atlas-server-v1.2.3.tar.gz"
 expect_failure checksum 'FAILED'
 
-printf 'OK: pull_server_release.sh passou no fluxo privado e nas falhas de acesso, assinatura e checksum\n'
+printf 'OK: pull_server_release.sh passou nos fluxos público/privado e nas falhas de acesso, assinatura e checksum\n'

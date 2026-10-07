@@ -43,6 +43,11 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version-file: go.mod
+
       - name: Build and smoke-test MCP client
         env:
           VERSION: ${{ github.ref_name }}
@@ -56,22 +61,11 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          mkdir -p dist
-          printf '%s\n' "$GITHUB_SHA" > REVISION
-          # O bundle do servidor leva só o que o deploy precisa para provisionar
-          # a collection e popular a biblioteca (fonte Python stdlib + fichas).
-          tar --sort=name --owner=0 --group=0 --numeric-owner \
-            -czf "dist/atlas-server-${VERSION}.tar.gz" \
-            REVISION \
-            atlas \
-            signals/core.json \
-            deploy/deploy_server.sh \
-            deploy/atlas.env.example \
-            scripts/provision_qdrant.sh
-          # O deploy_server.sh precisa estar executável dentro do bundle.
+          python scripts/build_go_release.py --version "$VERSION" --revision "$GITHUB_SHA"
           tar -tzf "dist/atlas-server-${VERSION}.tar.gz" | grep -Fx deploy/deploy_server.sh
-          rm REVISION
-          printf 'version=%s\ncommit=%s\n' "$VERSION" "$GITHUB_SHA" > dist/SOURCE.txt
+          tar -xzf "dist/atlas-${VERSION}-linux-amd64.tar.gz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/hive-atlas" version --json |
+            python -c 'import json, os, sys; p = json.load(sys.stdin); assert p["version"] == os.environ["VERSION"]; assert p["revision"] == os.environ["GITHUB_SHA"]; assert p["runtime"] == "go"'
           (cd dist && sha256sum * > SHA256SUMS)
 
       - name: Install Cosign

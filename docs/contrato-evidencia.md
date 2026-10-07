@@ -55,6 +55,17 @@ O mesmo motor consome os dois — "ao vivo" é só o watcher re-alimentando o n�
 
 ## Fronteiras
 
+- O produtor sanitiza tokens, cookies, chaves de API e PII **antes de emitir**.
+  O filtro adicional do Atlas recusa credenciais evidentes; ele não substitui
+  essa sanitização. Recusas registram somente contagens, nunca conteúdo.
+- Um watcher é vinculado a `program_id`; eventos de outro programa são
+  descartados. JSON estruturado inválido não vira nota de texto cru.
+- `atlas_observe` e o watcher enviam apenas a evidência já sanitizada por HTTPS
+  ao MCP remoto. O servidor avalia durante a requisição, sem persistir os eventos
+  ou colocá-los na biblioteca transversal. Feedback é explícito, separado por
+  membro e fora da biblioteca. `--offline` mantém avaliação e feedback locais
+  exclusivamente para desenvolvimento.
+
 - Toda evidência já está dentro de escopo autorizado quando chega ao Atlas; o
   Atlas **não** revalida escopo (isso é do gate do excalibull) e **não** autoriza
   tráfego.

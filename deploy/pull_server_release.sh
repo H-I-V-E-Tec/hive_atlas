@@ -6,7 +6,9 @@ set -Eeuo pipefail
 umask 077
 
 REPOSITORY="${HIVE_ATLAS_GITHUB_REPOSITORY:-H-I-V-E-Tec/hive_atlas}"
-TOKEN_FILE="${HIVE_ATLAS_GITHUB_TOKEN_FILE:-/srv/hive-private/github-release.token}"
+# Public releases need no GitHub credential. An explicit file supports a future
+# private origin without borrowing the Center's credential by default.
+TOKEN_FILE="${HIVE_ATLAS_GITHUB_TOKEN_FILE:-}"
 VERSION="${1:-}"
 
 die() { printf 'ERRO: %s\n' "$*" >&2; exit 1; }

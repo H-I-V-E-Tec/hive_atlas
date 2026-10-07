@@ -2,6 +2,21 @@
 
 Data: 2026-10-02. Reúne as alterações no Atlas decididas na revisão de tecnologias do ecossistema e no desenho do `hive_burp` (`../hive_burp/docs/decisions/`).
 
+## Atualização: implementação Go, sessão unificada e MCP remoto
+
+A migração foi implementada no runtime Go (`cmd/hive-atlas`, `internal/`),
+com MCP Streamable HTTP no servidor, ponte stdio no cliente e sessão compartilhada
+do `hive login`. A biblioteca embutida é usada somente com `--offline` explícito.
+O instalador único já existe (`hive_cli`); a condição que adiava a migração
+abaixo foi resolvida. A negociação MCP e os filtros do watcher também foram
+aplicados à referência Python, preservada para comparação e clientes antigos.
+
+O desenho e os critérios desta entrega estão em [docs/spec/go-remote.md](docs/spec/go-remote.md).
+A avaliação de outros modelos de embeddings continua independente: esta entrega
+registra/verifica modelo e dimensão, sem trocar o modelo da infraestrutura.
+A implementação usa RE2 em Go; padrões incompatíveis são recusados, e os limites
+de palavra externos das fichas atuais preservam a semântica Unicode do Python.
+
 ## Resumo
 
 | # | Alteração | Motivo | Tamanho |
@@ -32,7 +47,7 @@ O hive_burp grava um JSONL por programa e sessão em `$XDG_DATA_HOME/hive_burp/<
 
 O documento de arquitetura do ecossistema afirma que a evidência enviada ao Atlas não contém PII nem credenciais, mas `docs/contrato-evidencia.md` não exige isso. Hoje só o hive_burp sanitiza; o adaptador que lê o WAL do excalibull não tem essa regra.
 
-- Acrescentar ao contrato: **o produtor sanitiza antes de emitir** (tokens, cookies, chaves de API, PII). O Atlas não persiste evidência e não a envia para fora da máquina.
+- Acrescentar ao contrato: **o produtor sanitiza antes de emitir** (tokens, cookies, chaves de API, PII). O Atlas envia evidência sanitizada ao MCP remoto por HTTPS e não persiste os eventos.
 - Defesa adicional no Atlas: um filtro leve no `LineAdapter` que recusa linhas com padrões evidentes de segredo (`Authorization: Bearer`, `Cookie:`, chaves com formato conhecido) e registra só a contagem.
 
 ## 4. Modelo de embeddings
@@ -48,7 +63,7 @@ O Atlas usa `nomic-embed-text`, o mesmo do hive_mind (`atlas/embed.py`). As fich
 Hoje o MCP do Atlas lê a collection `atlas_signals_v01` direto do Qdrant, com token de leitura no ambiente (`docs/deploy.md`). Isso repete o acoplamento que o hive_mind está retirando.
 
 - Quando o serviço Mind em Go existir (ver `../api-hive-center/plano-versao-piloto.md`), expor `atlas_signals_search` pela mesma API, autorizado pela concessão `atlas` do membro.
-- O MCP local passa a chamar a API; sem sessão, continua com a biblioteca local `signals/*.json` e busca léxica, como já faz hoje quando falta `QDRANT_API_KEY`.
+- Implementado: ponte stdio chama `/atlas/mcp`; o serviço executa as ferramentas e valida o JWT compartilhado `aud=hive`/`product.atlas`. Sem sessão, exige `hive login`; `--offline` é explícito.
 - Fora do piloto: só depois da spec 005 (Mind leitura via HTTPS).
 
 ## Verificação

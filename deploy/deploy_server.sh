@@ -1,149 +1,141 @@
 #!/usr/bin/env bash
-# Instala um bundle do Atlas já verificado pelo pull_server_release.sh e publica
-# a biblioteca de sinais no Qdrant do servidor (o MESMO do hive_mind): garante a
-# collection transversal e roda `atlas.push`. Não sobe serviço nem toca o Mind.
+# Deploy a verified native Atlas bundle and an immutable library snapshot.
 set -Eeuo pipefail
 umask 077
 
 INSTALL_ROOT="${HIVE_ATLAS_INSTALL_ROOT:-/opt/hive-atlas}"
 PRIVATE_ROOT="${HIVE_ATLAS_PRIVATE_ROOT:-/srv/hive-private}"
 HISTORY_DIR="${HIVE_ATLAS_HISTORY_DIR:-/var/lib/hive-atlas-deploy}"
-QDRANT_REST="${ATLAS_QDRANT_REST:-https://127.0.0.1:6333}"
-OLLAMA_URL="${ATLAS_OLLAMA_URL:-http://127.0.0.1:11434}"
-EMBEDDING_MODEL="${ATLAS_EMBEDDING_MODEL:-nomic-embed-text}"
-ATLAS_COLLECTION="${ATLAS_COLLECTION:-atlas_signals_v01}"
-QDRANT_TLS_CA_FILE="${QDRANT_TLS_CA_FILE:-$PRIVATE_ROOT/ca.crt}"
-PYTHON="${ATLAS_PYTHON:-python3}"
+SYSTEMD_ROOT="${HIVE_ATLAS_SYSTEMD_ROOT:-/etc/systemd/system}"
 VERSION=""
+TEST_MODE=0
+if [ "${HIVE_ATLAS_DEPLOY_TEST_MODE:-}" = 1 ] && [[ "$INSTALL_ROOT" = /tmp/* ]] && [[ "$PRIVATE_ROOT" = /tmp/* ]] && [[ "$SYSTEMD_ROOT" = /tmp/* ]]; then TEST_MODE=1; fi
 
-die() { printf 'ERRO: %s\n' "$*" >&2; exit 1; }
-
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --version) [ "$#" -ge 2 ] || die "--version exige valor"; VERSION="$2"; shift 2 ;;
-    *) die "argumento desconhecido: $1" ;;
+    --version) [ "$#" -ge 2 ] || die "--version requires a value"; VERSION="$2"; shift 2 ;;
+    *) die "unknown argument: $1" ;;
   esac
 done
+[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || die "invalid version"
+[ "$(id -u)" = 0 ] || [ "$TEST_MODE" = 1 ] || die "run as root"
+for tool in curl jq systemctl; do command -v "$tool" >/dev/null || die "$tool is required"; done
 
-[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || die "versão inválida"
-if [ "$(id -u)" -ne 0 ]; then
-  if [ "${HIVE_ATLAS_DEPLOY_TEST_MODE:-}" != 1 ] || [[ "$INSTALL_ROOT" != /tmp/* ]] || [[ "$PRIVATE_ROOT" != /tmp/* ]]; then
-    die "execute como root"
-  fi
-fi
-command -v "$PYTHON" >/dev/null || die "$PYTHON não encontrado"
-command -v curl >/dev/null || die "curl não encontrado"
-
-SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-[ -f "$SOURCE_ROOT/REVISION" ] || die "bundle sem REVISION"
-REVISION="$(tr -d '\r\n' < "$SOURCE_ROOT/REVISION")"
-[[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || die "revisão inválida no bundle"
-[ -f "$SOURCE_ROOT/signals/core.json" ] || die "bundle sem biblioteca de sinais"
-[ -d "$SOURCE_ROOT/atlas" ] || die "bundle sem o pacote atlas"
-
-# Overrides opcionais do operador (CA, urls, modelo, collection). Arquivo privado
-# root-only, no formato KEY=value; ausente em dev.
 if [ -f "$PRIVATE_ROOT/atlas.env" ]; then
-  # shellcheck disable=SC1091
+  # Operator-owned configuration; never shipped with credentials in releases.
+  if [ "$TEST_MODE" = 0 ]; then
+    [ ! -L "$PRIVATE_ROOT/atlas.env" ] || die "atlas.env must not be a symlink"
+    [ "$(stat -c %u "$PRIVATE_ROOT/atlas.env")" = 0 ] || die "atlas.env must be owned by root"
+    [ "$(stat -c %a "$PRIVATE_ROOT/atlas.env")" = 600 ] || die "atlas.env must have mode 600"
+  fi
   set -a; . "$PRIVATE_ROOT/atlas.env"; set +a
 fi
+QDRANT_REST="${ATLAS_QDRANT_REST:-https://127.0.0.1:6333}"
+OLLAMA_URL="${ATLAS_OLLAMA_URL:-http://127.0.0.1:11434}"
+MODEL="${ATLAS_EMBEDDING_MODEL:-nomic-embed-text}"
+COLLECTION_BASE="${ATLAS_COLLECTION:-atlas_signals_v01}"
+CA_FILE="${QDRANT_TLS_CA_FILE:-$PRIVATE_ROOT/ca.crt}"
+CENTER_URL="${HIVE_CENTER_URL:-https://hive-center.duckdns.org}"
+HTTP_ADDR="${ATLAS_HTTP_ADDR:-172.28.0.1:8444}"
+HEALTH_URL="${ATLAS_HEALTH_URL:-http://$HTTP_ADDR/healthz}"
+[[ "$COLLECTION_BASE" =~ ^[A-Za-z0-9_-]+$ ]] || die "invalid collection name"
+for value in "$QDRANT_REST" "$OLLAMA_URL" "$MODEL" "$CENTER_URL" "$HTTP_ADDR"; do
+  [[ "$value" != *$'\n'* && "$value" != *'"'* && "$value" != *" "* ]] || die "invalid service environment value"
+done
 
-[ -f "$PRIVATE_ROOT/admin.key" ] || die "falta $PRIVATE_ROOT/admin.key (a admin key do hive_mind)"
-[ -f "$QDRANT_TLS_CA_FILE" ] || die "falta a CA do Qdrant: $QDRANT_TLS_CA_FILE"
+SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -f "$SOURCE_ROOT/REVISION" ] || die "bundle has no REVISION"
+REVISION="$(tr -d '\r\n' < "$SOURCE_ROOT/REVISION")"
+[[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || die "invalid bundle revision"
+[ -x "$SOURCE_ROOT/bin/hive-atlas" ] || die "bundle has no native Atlas executable"
+[ -f "$SOURCE_ROOT/signals/core.json" ] || die "bundle has no library"
+[ -f "$PRIVATE_ROOT/admin.key" ] || die "missing Qdrant admin key"
+[ -f "$CA_FILE" ] || die "missing Qdrant CA"
+"$SOURCE_ROOT/bin/hive-atlas" version --json | jq -e --arg version "$VERSION" --arg revision "$REVISION"   '.version == $version and .revision == $revision and .runtime == "go"' >/dev/null || die "bundle identity differs from version/revision"
 
-# ---- instalação do bundle (releases/<versão> + symlink current) ----
 TARGET="$INSTALL_ROOT/releases/$VERSION"
-CURRENT_LINK="$INSTALL_ROOT/current"
-install -d -m 0755 "$INSTALL_ROOT" "$INSTALL_ROOT/releases"
+CURRENT="$INSTALL_ROOT/current"
+PREVIOUS="$(readlink "$CURRENT" 2>/dev/null || true)"
+if [ "$PREVIOUS" = "$TARGET" ]; then
+  curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" | \
+    jq -e --arg version "$VERSION" '.status == "ok" and .version == $version and .signals > 0' >/dev/null || die "active release is unhealthy; publish a new tag to change its configuration"
+  printf 'Atlas %s is already active and healthy\n' "$VERSION"
+  exit 0
+fi
+COLLECTION="${COLLECTION_BASE}_${VERSION//[.-]/_}_${REVISION:0:12}"
+[ "${#COLLECTION}" -le 128 ] || die "collection name exceeds 128 characters"
+install -d -m 0755 "$INSTALL_ROOT/releases" "$SYSTEMD_ROOT"
 if [ -e "$TARGET" ]; then
-  [ -f "$TARGET/REVISION" ] || die "release existente incompleta: $TARGET"
-  [ "$(tr -d '\r\n' < "$TARGET/REVISION")" = "$REVISION" ] || die "versão já existe com outra revisão"
-  chmod 0755 "$TARGET"
-else
-  install -d -m 0755 "$TARGET" "$TARGET/deploy" "$TARGET/signals" "$TARGET/scripts"
-  install -m 0644 "$SOURCE_ROOT/REVISION" "$TARGET/REVISION"
-  install -m 0755 "$SOURCE_ROOT/deploy/deploy_server.sh" "$TARGET/deploy/deploy_server.sh"
-  install -m 0644 "$SOURCE_ROOT/signals/core.json" "$TARGET/signals/core.json"
-  [ -f "$SOURCE_ROOT/deploy/atlas.env.example" ] && \
-    install -m 0644 "$SOURCE_ROOT/deploy/atlas.env.example" "$TARGET/deploy/atlas.env.example"
-  [ -f "$SOURCE_ROOT/scripts/provision_qdrant.sh" ] && \
-    install -m 0755 "$SOURCE_ROOT/scripts/provision_qdrant.sh" "$TARGET/scripts/provision_qdrant.sh"
-  cp -a "$SOURCE_ROOT/atlas" "$TARGET/atlas"
-  chmod -R a+rX "$TARGET/atlas"
+  [ -f "$TARGET/REVISION" ] && [ "$(tr -d '\r\n' < "$TARGET/REVISION")" = "$REVISION" ] || die "version already exists with another revision"
 fi
+install -d -m 0755 "$TARGET/bin" "$TARGET/deploy" "$TARGET/signals"
+install -m 0644 "$SOURCE_ROOT/REVISION" "$TARGET/REVISION"
+install -m 0755 "$SOURCE_ROOT/bin/hive-atlas" "$TARGET/bin/hive-atlas"
+install -m 0644 "$SOURCE_ROOT/signals/core.json" "$TARGET/signals/core.json"
+install -m 0755 "$SOURCE_ROOT/deploy/deploy_server.sh" "$TARGET/deploy/deploy_server.sh"
+install -m 0644 "$SOURCE_ROOT/deploy/atlas.env.example" "$TARGET/deploy/atlas.env.example"
+install -m 0600 "$CA_FILE" "$TARGET/deploy/ca.crt"
 
-# ---- credencial do Qdrant (admin key como api-key, sem vazar em ps) ----
-ADMIN_KEY="$(tr -d '\r\n' < "$PRIVATE_ROOT/admin.key")"
-[ -n "$ADMIN_KEY" ] || die "admin key vazia"
-QCONF="$(mktemp)"
-trap 'rm -f -- "$QCONF"' EXIT
-chmod 0600 "$QCONF"
+printf 'Publishing library snapshot %s\n' "$COLLECTION"
+QDRANT_URL="$QDRANT_REST" QDRANT_API_KEY_FILE="$PRIVATE_ROOT/admin.key" QDRANT_TLS_CA_FILE="$CA_FILE" OLLAMA_URL="$OLLAMA_URL" EMBEDDING_MODEL="$MODEL" ATLAS_COLLECTION="$COLLECTION"   "$TARGET/bin/hive-atlas" push --library "$TARGET/signals/core.json"
+QDRANT_URL="$QDRANT_REST" QDRANT_API_KEY_FILE="$PRIVATE_ROOT/admin.key" QDRANT_TLS_CA_FILE="$CA_FILE" OLLAMA_URL="$OLLAMA_URL" EMBEDDING_MODEL="$MODEL" ATLAS_COLLECTION="$COLLECTION"   "$TARGET/bin/hive-atlas" mint-reader --output "$TARGET/deploy/reader.key"
 {
-  printf '%s\n' 'silent' 'show-error' 'fail-with-body'
-  printf 'cacert = "%s"\n' "$QDRANT_TLS_CA_FILE"
-  printf 'header = "api-key: %s"\n' "$ADMIN_KEY"
-  printf 'header = "Content-Type: application/json"\n'
-} > "$QCONF"
+  printf 'QDRANT_URL=%s\nATLAS_COLLECTION=%s\nOLLAMA_URL=%s\nEMBEDDING_MODEL=%s\nHIVE_CENTER_URL=%s\nATLAS_HTTP_ADDR=%s\n'     "$QDRANT_REST" "$COLLECTION" "$OLLAMA_URL" "$MODEL" "$CENTER_URL" "$HTTP_ADDR"
+} > "$TARGET/deploy/service.env"
+chmod 0644 "$TARGET/deploy/service.env"
 
-# ---- 1/4 · dimensão do modelo (Ollama local, http) ----
-printf '1/4 · sondando dimensão de %s\n' "$EMBEDDING_MODEL"
-PROBE="$(curl -sS --max-time 30 "$OLLAMA_URL/api/embeddings" \
-  -H 'Content-Type: application/json' \
-  --data "{\"model\":\"$EMBEDDING_MODEL\",\"prompt\":\"atlas dimension probe\"}")" \
-  || die "Ollama não respondeu em $OLLAMA_URL"
-DIM="$(printf '%s' "$PROBE" | "$PYTHON" -c 'import json,sys; print(len(json.load(sys.stdin)["embedding"]))')" \
-  || die "resposta de embedding inválida do Ollama"
-[[ "$DIM" =~ ^[1-9][0-9]*$ ]] || die "dimensão inválida: $DIM"
-printf '    dimensão: %s\n' "$DIM"
-
-# ---- 2/4 · garantir a collection transversal ----
-printf '2/4 · garantindo a collection %s\n' "$ATLAS_COLLECTION"
-CODE="$(curl -sS --config "$QCONF" -o /dev/null -w '%{http_code}' \
-  "$QDRANT_REST/collections/$ATLAS_COLLECTION" || true)"
-if [ "$CODE" = "200" ]; then
-  printf '    já existe\n'
-elif [ "$CODE" = "404" ]; then
-  curl -sS --config "$QCONF" -X PUT "$QDRANT_REST/collections/$ATLAS_COLLECTION" \
-    --data-raw "{\"vectors\":{\"size\":$DIM,\"distance\":\"Cosine\"}}" >/dev/null \
-    || die "falha ao criar a collection"
-  printf '    criada (dim=%s)\n' "$DIM"
-else
-  die "Qdrant respondeu HTTP $CODE ao consultar a collection"
-fi
-
-# ---- 3/4 · popular a biblioteca ----
-# ATLAS_PUSH_CMD substitui o comando de push (usado só pelo harness de teste).
-printf '3/4 · populando a biblioteca (atlas.push)\n'
-PUSH_CMD=("$PYTHON" -m atlas.push)
-[ -n "${ATLAS_PUSH_CMD:-}" ] && read -r -a PUSH_CMD <<< "$ATLAS_PUSH_CMD"
-(
-  cd "$TARGET"
-  QDRANT_URL="$QDRANT_REST" \
-  ATLAS_COLLECTION="$ATLAS_COLLECTION" \
-  OLLAMA_URL="$OLLAMA_URL" \
-  EMBEDDING_MODEL="$EMBEDDING_MODEL" \
-  QDRANT_API_KEY="$ADMIN_KEY" \
-  QDRANT_TLS_CA_FILE="$QDRANT_TLS_CA_FILE" \
-  "${PUSH_CMD[@]}"
-) || die "atlas.push falhou"
-
-# ---- 4/4 · verificação (a collection tem pontos) ----
-printf '4/4 · verificando pontos na collection\n'
-COUNT_JSON="$(curl -sS --config "$QCONF" -X POST \
-  "$QDRANT_REST/collections/$ATLAS_COLLECTION/points/count" \
-  --data-raw '{"exact":true}')" || die "falha ao contar pontos"
-COUNT="$(printf '%s' "$COUNT_JSON" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["result"]["count"])')" \
-  || die "resposta de contagem inválida"
-[[ "$COUNT" =~ ^[0-9]+$ ]] && [ "$COUNT" -gt 0 ] || die "collection vazia após o push (count=$COUNT)"
-printf '    pontos: %s\n' "$COUNT"
-
-# ---- promover a release ativa ----
-link_tmp="$INSTALL_ROOT/.current.$$"
-rm -f -- "$link_tmp"
-ln -s "$TARGET" "$link_tmp"
-mv -Tf "$link_tmp" "$CURRENT_LINK"
-
+# Retain the previous unit until the new service passes its health check.
+UNIT_BACKUP="$(mktemp)"
+HAD_UNIT=0
+if [ -f "$SYSTEMD_ROOT/hive-atlas.service" ]; then cp "$SYSTEMD_ROOT/hive-atlas.service" "$UNIT_BACKUP"; HAD_UNIT=1; fi
+PROMOTED=0
+rollback() {
+  status=$?
+  trap - ERR
+  if [ "$PROMOTED" = 1 ]; then
+    if [ -n "$PREVIOUS" ]; then
+      ln -s "$PREVIOUS" "$INSTALL_ROOT/.rollback.$$"
+      mv -Tf "$INSTALL_ROOT/.rollback.$$" "$CURRENT"
+    else
+      rm -f -- "$CURRENT"
+    fi
+    if [ "$HAD_UNIT" = 1 ]; then
+      install -m 0644 "$UNIT_BACKUP" "$SYSTEMD_ROOT/hive-atlas.service"
+      systemctl daemon-reload
+      systemctl restart hive-atlas.service || true
+    else
+      systemctl stop hive-atlas.service || true
+      systemctl disable hive-atlas.service || true
+      rm -f -- "$SYSTEMD_ROOT/hive-atlas.service"
+      systemctl daemon-reload
+    fi
+    printf 'Atlas deployment failed; previous release restored\n' >&2
+  fi
+  rm -f -- "$UNIT_BACKUP"
+  exit "$status"
+}
+trap rollback ERR
+trap 'rm -f -- "$UNIT_BACKUP"' EXIT
+# Path substitution supports an isolated test/install root without changing the unit contract.
+sed "s|/opt/hive-atlas|$INSTALL_ROOT|g" "$SOURCE_ROOT/deploy/hive-atlas.service" > "$SYSTEMD_ROOT/hive-atlas.service"
+chmod 0644 "$SYSTEMD_ROOT/hive-atlas.service"
+ln -s "$TARGET" "$INSTALL_ROOT/.current.$$"
+mv -Tf "$INSTALL_ROOT/.current.$$" "$CURRENT"
+PROMOTED=1
+systemctl daemon-reload
+systemctl enable hive-atlas.service
+systemctl restart hive-atlas.service
+healthy=0
+attempts=30; [ "$TEST_MODE" = 0 ] || attempts=2
+for ((i=0; i<attempts; i++)); do
+  if curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" |     jq -e --arg version "$VERSION" '.status == "ok" and .version == $version and .signals > 0' >/dev/null; then healthy=1; break; fi
+  sleep 1
+done
+# Use a failing command, so the ERR trap restores both the unit and snapshot.
+[ "$healthy" = 1 ]
+PROMOTED=0
+trap - ERR
 install -d -m 0700 "$HISTORY_DIR"
-printf '{"version":"%s","revision":"%s","collection":"%s","points":%s,"result":"healthy"}\n' \
-  "$VERSION" "$REVISION" "$ATLAS_COLLECTION" "$COUNT" >> "$HISTORY_DIR/history.jsonl"
-printf 'Deploy concluído: %s (%s) · %s ponto(s)\n' "$VERSION" "$REVISION" "$COUNT"
+printf '{"version":"%s","revision":"%s","collection":"%s","result":"healthy"}\n'   "$VERSION" "$REVISION" "$COLLECTION" >> "$HISTORY_DIR/history.jsonl"
+printf 'Atlas %s deployed with remote MCP and immutable library snapshot\n' "$VERSION"
