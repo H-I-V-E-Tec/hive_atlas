@@ -65,7 +65,7 @@ o deploy do Center executa as migrations pendentes normalmente.
 
 Depois dessa preparação, merge/publicação e deploy nas versões:
 Mind `v1.5.0` → API Center `v1.3.0` → Atlas `v2.0.0`.
-Publique também o launcher `v1.2.0`; no computador execute `hive update`,
+Publique também o launcher `v1.2.0`; no computador execute primeiro `hive update hive`,
 `hive update mind atlas`, `hive login`, `hive setup atlas --client codex` e
 `hive doctor atlas`. O usuário precisa de `product.atlas` no seu perfil do Center.
 Se Atlas ainda não estiver instalado, use `hive install atlas`.
@@ -137,7 +137,7 @@ Python. Dispatch e rollback identificam o formato efetivamente instalado.
 A origem e a identidade Sigstore continuam fixas em `H-I-V-E-Tec/hive_atlas`.
 
 ```bash
-hive update
+hive update hive
 hive install atlas
 hive atlas version --json
 hive login

@@ -105,7 +105,7 @@ modo explícito de desenvolvimento com a biblioteca embutida e feedback local.
 Com a release do launcher que incorpora o suporte nativo publicada:
 
 ```bash
-hive update
+hive update hive                       # atualize primeiro somente o launcher
 hive install atlas
 hive atlas version --json
 hive login                            # sessão única para todos os produtos
