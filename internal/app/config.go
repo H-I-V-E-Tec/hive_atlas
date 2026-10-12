@@ -13,7 +13,7 @@ import (
 
 var Version = "v2.0.0-dev"
 var Revision = ""
-var DefaultCenterURL = "https://hive-center.duckdns.org"
+var DefaultCenterURL = "https://hive-center.com.br"
 
 func hiveHome() string {
 	if v := os.Getenv("HIVE_HOME"); v != "" {
@@ -38,8 +38,23 @@ func centerURL() (string, error) {
 	if value == "" {
 		value = DefaultCenterURL
 	}
+	if strings.TrimRight(value, "/") == "https://hive-center.duckdns.org" {
+		return "", fmt.Errorf("HIVE Center moved to %s; update HIVE_CENTER_URL or run hive login --center-url %s", DefaultCenterURL, DefaultCenterURL)
+	}
 	return transport.ValidateURL(value)
 }
+
+func atlasURL(center string) (string, error) {
+	value := os.Getenv("HIVE_ATLAS_URL")
+	if value == "" {
+		value = center + "/atlas"
+	}
+	if strings.TrimRight(value, "/") == "https://hive-center.duckdns.org/atlas" {
+		return "", fmt.Errorf("Hive Atlas moved to %s/atlas; update HIVE_ATLAS_URL or repeat hive setup atlas", DefaultCenterURL)
+	}
+	return transport.ValidateURL(value)
+}
+
 func localLibrary(path string) (*core.Library, error) {
 	data := signals.Core
 	if path != "" {
@@ -60,11 +75,7 @@ func backend() (transport.Backend, error) {
 	if err != nil {
 		return nil, err
 	}
-	url := os.Getenv("HIVE_ATLAS_URL")
-	if url == "" {
-		url = center + "/atlas"
-	}
-	url, err = transport.ValidateURL(url)
+	url, err := atlasURL(center)
 	if err != nil {
 		return nil, err
 	}

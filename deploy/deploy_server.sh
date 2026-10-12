@@ -36,9 +36,12 @@ OLLAMA_URL="${ATLAS_OLLAMA_URL:-http://127.0.0.1:11434}"
 MODEL="${ATLAS_EMBEDDING_MODEL:-nomic-embed-text}"
 COLLECTION_BASE="${ATLAS_COLLECTION:-atlas_signals_v01}"
 CA_FILE="${QDRANT_TLS_CA_FILE:-$PRIVATE_ROOT/ca.crt}"
-CENTER_URL="${HIVE_CENTER_URL:-https://hive-center.duckdns.org}"
+CENTER_URL="${HIVE_CENTER_URL:-https://hive-center.com.br}"
 HTTP_ADDR="${ATLAS_HTTP_ADDR:-172.28.0.1:8444}"
 HEALTH_URL="${ATLAS_HEALTH_URL:-http://$HTTP_ADDR/healthz}"
+if [ "${CENTER_URL%/}" = 'https://hive-center.duckdns.org' ]; then
+  die "HIVE_CENTER_URL uses the retired domain; set it to https://hive-center.com.br in $PRIVATE_ROOT/atlas.env"
+fi
 [[ "$COLLECTION_BASE" =~ ^[A-Za-z0-9_-]+$ ]] || die "invalid collection name"
 for value in "$QDRANT_REST" "$OLLAMA_URL" "$MODEL" "$CENTER_URL" "$HTTP_ADDR"; do
   [[ "$value" != *$'\n'* && "$value" != *'"'* && "$value" != *" "* ]] || die "invalid service environment value"

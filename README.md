@@ -122,7 +122,7 @@ instaláveis e disponíveis para rollback. O `.pyz` também é publicado durante
 transição para launchers antigos; a integração com a API está no runtime Go.
 As releases do Atlas permanecem **públicas**, sem exigir token GitHub.
 
-Configuração: `HIVE_CENTER_URL` (padrão `https://hive-center.duckdns.org`),
+Configuração: `HIVE_CENTER_URL` (padrão `https://hive-center.com.br`),
 `HIVE_ATLAS_URL` (padrão `<center>/atlas`), `HIVE_HOME` (padrão `~/.hive`),
 `ATLAS_OFFLINE=1`. URLs fora de loopback precisam de HTTPS. O login guarda
 `$HIVE_HOME/token`, compartilhado com o Mind; `HIVE_TOKEN_FILE` substitui o caminho

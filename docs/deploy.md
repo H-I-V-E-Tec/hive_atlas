@@ -49,7 +49,7 @@ sudo install -o root -g root -m 0755 /tmp/hive-atlas-pull-release.sh \
 ```
 
 Confira `/srv/hive-private/atlas.env` (root:root, modo `0600`):
-`HIVE_CENTER_URL=https://hive-center.duckdns.org`,
+`HIVE_CENTER_URL=https://hive-center.com.br`,
 `ATLAS_HTTP_ADDR=172.28.0.1:8444` e
 `ATLAS_HEALTH_URL=http://172.28.0.1:8444/healthz`, ou os valores da sua rede.
 Não sobrescreva um arquivo existente com o exemplo. O serviço precisa da CA e
@@ -155,6 +155,17 @@ Center em `$HIVE_HOME/center-url`, ambos com acesso privado. `hive login --check
 valida assinatura e claims da sessão. `HIVE_TOKEN_FILE` e `HIVE_TOKEN` são opções
 compartilhadas de injeção. `hive setup atlas` e `hive doctor atlas` são atalhos
 para `hive atlas setup|doctor`. Não há token ou login específico do Atlas.
+
+Se uma instalação antiga ainda aponta para `hive-center.duckdns.org`, atualize
+`HIVE_CENTER_URL` em `/srv/hive-private/atlas.env` antes de publicar uma nova
+release do servidor. O instalador gera `service.env` a partir desse arquivo; o
+healthcheck local pode continuar verde mesmo que a validação de tokens use o
+domínio antigo. No computador do membro, execute
+`hive login --center-url https://hive-center.com.br` para atualizar
+`$HIVE_HOME/center-url` e a sessão. Depois execute
+`hive setup atlas --client codex` (ou o agente utilizado) para substituir as
+URLs salvas na configuração MCP. Reinicie o agente e confira com
+`hive doctor atlas`.
 
 As permissões são um retrato da emissão do JWT. Refaça `hive login` após alterar
 perfis. O prazo atual é de 12 horas; não foi acrescentado refresh/revogação

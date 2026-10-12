@@ -8,8 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/H-I-V-E-Tec/hive_atlas/internal/transport"
 )
 
 func setup(client, path string) error {
@@ -25,11 +23,7 @@ func setup(client, path string) error {
 	if err != nil {
 		return err
 	}
-	endpoint := os.Getenv("HIVE_ATLAS_URL")
-	if endpoint == "" {
-		endpoint = center + "/atlas"
-	}
-	endpoint, err = transport.ValidateURL(endpoint)
+	endpoint, err := atlasURL(center)
 	if err != nil {
 		return err
 	}

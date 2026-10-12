@@ -36,6 +36,7 @@ export HIVE_TEST_COMMAND_LOG="$TEST_ROOT/commands.log" HIVE_TEST_SERVICE_LOG="$T
 export HIVE_ATLAS_DEPLOY_TEST_MODE=1 HIVE_ATLAS_INSTALL_ROOT="$TEST_ROOT/install" HIVE_ATLAS_PRIVATE_ROOT="$TEST_ROOT/private"
 export HIVE_ATLAS_SYSTEMD_ROOT="$TEST_ROOT/systemd" HIVE_ATLAS_HISTORY_DIR="$TEST_ROOT/history"
 export HIVE_TEST_VERSION=v9.9.9
+unset HIVE_CENTER_URL
 bash "$BUNDLE/deploy/deploy_server.sh" --version "$HIVE_TEST_VERSION"
 CURRENT="$TEST_ROOT/install/current"
 EXPECTED="$TEST_ROOT/install/releases/v9.9.9"
@@ -45,6 +46,7 @@ EXPECTED="$TEST_ROOT/install/releases/v9.9.9"
 [ "$(stat -c '%a' "$EXPECTED/bin")" = 755 ]
 [ -f "$EXPECTED/deploy/reader.key" ]
 grep -q 'atlas_signals_v01_v9_9_9_000000000000' "$EXPECTED/deploy/service.env"
+grep -Fxq 'HIVE_CENTER_URL=https://hive-center.com.br' "$EXPECTED/deploy/service.env"
 grep -q '"result":"healthy"' "$TEST_ROOT/history/history.jsonl"
 
 # A writer failure occurs before promotion and leaves the old API/library active.
