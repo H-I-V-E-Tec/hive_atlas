@@ -13,14 +13,27 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/H-I-V-E-Tec/hive_atlas/internal/core"
 )
+
+// libraryTTL bounds how long a published release library is reused. The
+// collection name carries version and revision, so a serving process never
+// sees it change; the window only covers a republish during development.
+const libraryTTL = 5 * time.Minute
 
 type Store struct {
 	URL, Collection, Key, Ollama, Model string
 	Client                              *http.Client
 	EmbeddingClient                     *http.Client
+	// CacheTTL overrides libraryTTL; a negative value disables the cache.
+	CacheTTL time.Duration
+
+	mu     sync.Mutex
+	cached *core.Library
+	at     time.Time
 }
 
 func StoreFromEnv() (*Store, error) {
@@ -115,7 +128,30 @@ func (s *Store) embed(ctx context.Context, text string) ([]float64, error) {
 	}
 	return out.Embedding, nil
 }
+
+// Library returns the published library, compiled once per TTL instead of
+// scrolled and recompiled on every tool call and health probe.
 func (s *Store) Library(ctx context.Context) (*core.Library, error) {
+	ttl := s.CacheTTL
+	if ttl == 0 {
+		ttl = libraryTTL
+	}
+	// The lock is held across the scroll on purpose: concurrent callers wait for
+	// one fetch instead of each starting their own.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cached != nil && ttl > 0 && time.Since(s.at) < ttl {
+		return s.cached, nil
+	}
+	lib, err := s.scroll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.cached, s.at = lib, time.Now()
+	return lib, nil
+}
+
+func (s *Store) scroll(ctx context.Context) (*core.Library, error) {
 	lib := &core.Library{SchemaVersion: 1, Signals: []core.Ficha{}}
 	var offset any
 	seenOffsets := map[string]bool{}
@@ -255,5 +291,9 @@ func (s *Store) Push(ctx context.Context, lib *core.Library) error {
 	if count.Result.Count != len(lib.Signals) {
 		return fmt.Errorf("collection point count differs from library; use a clean release collection")
 	}
+	// A republish invalidates whatever this process had cached.
+	s.mu.Lock()
+	s.cached, s.at = nil, time.Time{}
+	s.mu.Unlock()
 	return nil
 }

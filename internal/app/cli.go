@@ -202,10 +202,18 @@ func Run(args []string, in io.Reader, out, stderr io.Writer) int {
 		}
 		ticker := time.NewTicker(*interval)
 		defer ticker.Stop()
+		// Report the running refusal totals, so silently dropped input is
+		// visible. Counts only: refused content is never logged.
+		var reported core.Refusals
 		for err == nil {
 			_, err = w.Poll()
 			if err != nil {
 				break
+			}
+			if r := w.Refusals(); r != reported {
+				fmt.Fprintf(stderr, "atlas: dropped input - other program: %d, credential: %d, invalid: %d, outside window: %d\n",
+					r.Program, r.Secret, r.Invalid, r.Window)
+				reported = r
 			}
 			select {
 			case <-ctx.Done():

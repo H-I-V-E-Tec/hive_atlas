@@ -68,7 +68,53 @@ func weight(f *Ficha) int {
 	return w
 }
 
+// Retriever selects candidate signals for a budgeted evaluation.
+type Retriever func(query string, k int) ([]Hit, error)
+
+// Recommend evaluates with the library's own lexical retrieval.
 func (lib *Library) Recommend(events []Evidence, k int) Board {
+	board, _ := lib.RecommendWith(events, k, nil)
+	return board
+}
+
+// expand grows a budgeted candidate set to a fixpoint: a chain pulls in its
+// feeders and a signal pulls in the chains it feeds, repeatedly, so a
+// composition deeper than two links survives the budget.
+func (lib *Library) expand(hits []Hit) map[string]bool {
+	byID := map[string]*Ficha{}
+	for i := range lib.Signals {
+		byID[lib.Signals[i].ID] = &lib.Signals[i]
+	}
+	only, queue := map[string]bool{}, []string{}
+	for _, h := range hits {
+		if !only[h.ID] {
+			only[h.ID] = true
+			queue = append(queue, h.ID)
+		}
+	}
+	for len(queue) > 0 {
+		f := byID[queue[0]]
+		queue = queue[1:]
+		if f == nil {
+			continue
+		}
+		for _, id := range append(append([]string{}, f.Requires...), f.Feeds...) {
+			if !only[id] {
+				only[id] = true
+				queue = append(queue, id)
+			}
+		}
+	}
+	return only
+}
+
+// RecommendWith lets the caller supply the retrieval behind the k budget, so a
+// server backed by the semantic store ranks candidates with the same
+// embeddings as the search tool instead of the in-process lexical fallback.
+func (lib *Library) RecommendWith(events []Evidence, k int, retrieve Retriever) (Board, error) {
+	if retrieve == nil {
+		retrieve = func(query string, n int) ([]Hit, error) { return lib.Search(query, n), nil }
+	}
 	groups := map[[3]string][]Evidence{}
 	keys := [][3]string{}
 	for _, e := range events {
@@ -87,21 +133,11 @@ func (lib *Library) Recommend(events []Evidence, k int) Board {
 			for _, e := range sub {
 				texts = append(texts, e.Text())
 			}
-			only = map[string]bool{}
-			for _, h := range lib.Search(strings.Join(texts, " "), k) {
-				only[h.ID] = true
+			hits, err := retrieve(strings.Join(texts, " "), k)
+			if err != nil {
+				return Board{}, err
 			}
-			initial := map[string]bool{}
-			for id := range only {
-				initial[id] = true
-			}
-			for _, f := range lib.Signals {
-				if initial[f.ID] {
-					for _, id := range append(append([]string{}, f.Requires...), f.Feeds...) {
-						only[id] = true
-					}
-				}
-			}
+			only = lib.expand(hits)
 		}
 		results := map[string]Recommendation{}
 		for i := range lib.Signals {
@@ -197,5 +233,5 @@ func (lib *Library) Recommend(events []Evidence, k int) Board {
 		}
 		board = strings.Join(parts, "\n\n")
 	}
-	return Board{Board: board, Leads: leads}
+	return Board{Board: board, Leads: leads}, nil
 }
