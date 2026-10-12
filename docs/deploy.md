@@ -214,10 +214,16 @@ Qdrant/Ollama falsos, verificação de push e rollback sem systemd real.
 Eles verificam comportamento local; a implantação de uma nova release no servidor
 precisa ser executada e conferida pelos workflows de produção.
 
-## Referência Python e licença antiga
+## Referência Python
 
-`atlas/`, `bin/hive` e `build_client_release.py` permanecem como referência,
-ferramentas do dojo e compatibilidade de distribuição. O runtime principal é Go.
-O gate opcional `ATLAS_REQUIRE_LICENSE=1` mantém a verificação HMAC da licença
-antiga durante a migração; ele é independente da autorização RS256 da API.
-Nenhuma chave HMAC é usada para autorizar acesso à biblioteca hospedada.
+`atlas/` e `scripts/build_client_release.py` permanecem como referência de
+comportamento, ferramenta do dojo (ingestão de fichas, `atlas/ingest.py`) e
+compatibilidade da distribuição `.pyz`. O runtime principal é Go.
+
+A autorização é exclusivamente o JWT RS256 do Center (`aud=hive`,
+`product.atlas`). O gate HMAC offline `ATLAS_REQUIRE_LICENSE` foi **removido**:
+a chave de verificação era a mesma que assinava, então qualquer portador do
+cliente podia emitir uma licença válida — ele não controlava acesso, apenas
+parecia controlar. O launcher `bin/hive` deste repositório e o manifesto
+`atlas-release.json` que só ele lia saíram junto; quem instala e fixa release é
+o launcher `hive` do ecossistema.

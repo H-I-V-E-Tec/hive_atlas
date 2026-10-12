@@ -107,8 +107,7 @@ func TestSetupPreservesOtherAgentConfig(t *testing.T) {
 		t.Fatal(string(data))
 	}
 }
-func TestVersionIndependentOfLicenseAndInfrastructure(t *testing.T) {
-	t.Setenv("ATLAS_REQUIRE_LICENSE", "1")
+func TestVersionNeedsNoInfrastructure(t *testing.T) {
 	var out, err bytes.Buffer
 	if code := Run([]string{"version", "--json"}, strings.NewReader(""), &out, &err); code != 0 || !strings.Contains(out.String(), `"runtime":"go"`) {
 		t.Fatalf("%d %s", code, err.String())

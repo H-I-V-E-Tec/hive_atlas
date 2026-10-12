@@ -28,7 +28,7 @@ def main():
         for k in (0, 5):
             requests.append({"jsonrpc": "2.0", "id": len(comparisons)+1, "method": "tools/call", "params": {"name": "atlas_observe", "arguments": {"evidence": case["evidence"], "k": k}}})
             comparisons.append((case, k))
-    run = subprocess.run([str(Path(args.binary).resolve()), "--offline"], input="".join(json.dumps(r)+"\n" for r in requests), capture_output=True, text=True, cwd=ROOT, env={**os.environ, "ATLAS_REQUIRE_LICENSE": "0", "ATLAS_LIBRARY": str(ROOT / "signals/core.json")}, check=True)
+    run = subprocess.run([str(Path(args.binary).resolve()), "--offline"], input="".join(json.dumps(r)+"\n" for r in requests), capture_output=True, text=True, cwd=ROOT, env={**os.environ, "ATLAS_LIBRARY": str(ROOT / "signals/core.json")}, check=True)
     responses = [json.loads(line) for line in run.stdout.splitlines()]
     assert len(responses) == len(comparisons)+1
     for response, (case, k) in zip(responses[1:], comparisons):

@@ -163,8 +163,10 @@ bin/hive-atlas watch --offline --program-id demo --asset api.demo.invalid \
   --source /caminho/da/sessao/events.jsonl --board /caminho/board.md
 ```
 
-O watcher conta recusas de outro programa, credenciais evidentes e JSON inválido,
-processa linhas completas e acompanha rotação/truncamento. O produtor sanitiza
+O watcher **relata** em stderr as recusas acumuladas (outro programa, credencial
+evidente, JSON inválido) como contagem, nunca conteúdo; processa linhas completas,
+acompanha rotação/truncamento, lê um trecho limitado por poll e mantém uma janela
+de sessão limitada — os eventos que saem dela entram na mesma contagem. O produtor sanitiza
 credenciais e PII antes de emitir. Biblioteca e ingestão usam os contratos de
 `docs/`; padrões Go são RE2 e padrões incompatíveis são recusados.
 
