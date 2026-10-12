@@ -62,8 +62,12 @@ func TestLibraryIsScrolledOncePerTTL(t *testing.T) {
 		t.Fatalf("searched %d times, want 1", got)
 	}
 
-	// An expired window refetches, so a republish is still picked up.
-	store.CacheTTL = time.Nanosecond
+	// An expired window refetches, so a republish is still picked up. The cache
+	// is aged directly: shrinking the TTL instead would race the clock, whose
+	// monotonic resolution can report no elapsed time at all.
+	store.mu.Lock()
+	store.at = time.Now().Add(-time.Hour)
+	store.mu.Unlock()
 	if _, err := store.Library(ctx); err != nil {
 		t.Fatal(err)
 	}
