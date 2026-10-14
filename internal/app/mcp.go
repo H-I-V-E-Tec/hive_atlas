@@ -25,10 +25,12 @@ var tools = json.RawMessage(`[
 ]`)
 
 type request struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
+	JSONRPC string `json:"jsonrpc"`
+	// omitempty keeps a notification id-less when the HTTP endpoint rewrites an
+	// initialize request: an injected null id would turn it into a call.
+	ID     json.RawMessage `json:"id,omitempty"`
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
 }
 type rpcError struct {
 	Code    int    `json:"code"`
@@ -152,7 +154,19 @@ func (m *MCP) call(ctx context.Context, name string, args json.RawMessage) (any,
 		if err != nil {
 			return nil, err
 		}
-		return lib.Recommend(*a.Evidence, a.K), nil
+		if a.K == 0 {
+			return lib.Recommend(*a.Evidence, 0), nil
+		}
+		// A budgeted observe ranks candidates with the backend's own retrieval,
+		// so a hosted library uses its embeddings instead of the in-process
+		// lexical fallback.
+		board, err := lib.RecommendWith(*a.Evidence, a.K, func(query string, k int) ([]core.Hit, error) {
+			return m.Backend.Search(ctx, query, k)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return board, nil
 	case "atlas_signals_search":
 		var a struct {
 			Query string `json:"query"`

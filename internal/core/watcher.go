@@ -3,15 +3,34 @@ package core
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
+// maxPollBytes bounds how much a single poll reads from one source. A producer
+// that appends a large burst must not force an allocation the size of the
+// burst; the remainder is picked up by the next poll.
+const maxPollBytes = 1 << 20
+
+// maxSessionEvents bounds the accumulated session window. Events accumulate on
+// purpose, because conditions are evaluated over the whole flow, but an
+// unbounded window would grow past the remote MCP body and evidence limits and
+// resend the entire session on every poll.
+const maxSessionEvents = 2000
+
 type Adapter struct {
 	ProgramID, Asset                                 string
 	RejectedProgram, RejectedSecret, RejectedInvalid int
+}
+
+// Refusals reports why input was dropped. Counts only: refused content is
+// never logged or included in an error.
+type Refusals struct {
+	Program, Secret, Invalid, Window int
 }
 
 func (a *Adapter) Event(line, ref string) *Evidence {
@@ -64,7 +83,29 @@ type Watcher struct {
 	BoardPath string
 	Adapter   Adapter
 	Events    []Evidence
-	states    map[string]fileState
+	// MaxEvents bounds the session window and MaxPollBytes one poll's read;
+	// both fall back to the package defaults when zero.
+	MaxEvents    int
+	MaxPollBytes int
+	dropped      int
+	states       map[string]fileState
+}
+
+// Refusals exposes the running totals so a caller can report them.
+func (w *Watcher) Refusals() Refusals {
+	return Refusals{w.Adapter.RejectedProgram, w.Adapter.RejectedSecret, w.Adapter.RejectedInvalid, w.dropped}
+}
+
+func (w *Watcher) add(e Evidence) {
+	limit := w.MaxEvents
+	if limit <= 0 {
+		limit = maxSessionEvents
+	}
+	w.Events = append(w.Events, e)
+	if extra := len(w.Events) - limit; extra > 0 {
+		w.Events = append(w.Events[:0], w.Events[extra:]...)
+		w.dropped += extra
+	}
 }
 
 func (w *Watcher) Poll() (int, error) {
@@ -89,32 +130,39 @@ func (w *Watcher) Poll() (int, error) {
 		if st.Info != nil && (!os.SameFile(st.Info, info) || info.Size() < st.Offset) {
 			st = fileState{}
 		}
-		_, err = f.Seek(st.Offset, 0)
-		if err != nil {
-			f.Close()
-			return count, err
+		var buf []byte
+		chunk := int64(w.MaxPollBytes)
+		if chunk <= 0 {
+			chunk = maxPollBytes
 		}
-		// Process complete lines only, so a concurrently appended JSON event is not lost.
-		buf := make([]byte, info.Size()-st.Offset)
-		_, err = f.ReadAt(buf, st.Offset)
-		f.Close()
-		if err != nil && len(buf) > 0 {
-			return count, err
-		}
-		end := bytes.LastIndexByte(buf, '\n')
-		if end < 0 {
-			continue
-		}
-		for _, line := range strings.Split(string(buf[:end]), "\n") {
-			st.Line++
-			e := w.Adapter.Event(line, fmt.Sprintf("%s:%d", filepath.Base(path), st.Line))
-			if e != nil {
-				w.Events = append(w.Events, *e)
-				count++
+		if size := info.Size() - st.Offset; size > 0 {
+			if size > chunk {
+				size = chunk
 			}
+			buf = make([]byte, size)
+			n, err := f.ReadAt(buf, st.Offset)
+			// A concurrent rotation or truncation shortens the read. Keep the
+			// bytes that did arrive instead of ending the watch.
+			if n == 0 && err != nil && !errors.Is(err, io.EOF) {
+				f.Close()
+				return count, err
+			}
+			buf = buf[:n]
 		}
-		st.Offset += int64(end + 1)
+		f.Close()
 		st.Info = info
+		// Process complete lines only, so a concurrently appended JSON event is not lost.
+		if end := bytes.LastIndexByte(buf, '\n'); end >= 0 {
+			for _, line := range strings.Split(string(buf[:end]), "\n") {
+				st.Line++
+				e := w.Adapter.Event(line, fmt.Sprintf("%s:%d", filepath.Base(path), st.Line))
+				if e != nil {
+					w.add(*e)
+					count++
+				}
+			}
+			st.Offset += int64(end + 1)
+		}
 		w.states[path] = st
 	}
 	if count > 0 {

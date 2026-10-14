@@ -9,7 +9,7 @@ Ferramentas:
   atlas_signals_search   — recupera fichas candidatas (léxico)
   atlas_feedback         — registra desfecho revisado
 
-Licença: `check_startup` roda em main() e é fail-closed no modo comercial.
+Autorização é da API (JWT RS256 do Center); este servidor não tem gate próprio.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ from .engine import Engine
 from .evidence import Corpus
 from .feedback import Feedback, record
 from .ficha import load_library
-from .license import LicenseError, check_startup
 from .retrieval import LexicalRetriever
 from .version import VERSION
 
@@ -182,14 +181,6 @@ def main() -> int:
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-    try:
-        lic = check_startup()
-    except LicenseError as exc:
-        print(f"atlas: {exc}", file=sys.stderr)
-        return 2
-    if lic:
-        print(f"atlas: licença ok (sub={lic.subject})", file=sys.stderr)
-
     server = Server()
     for line in sys.stdin:
         line = line.strip()

@@ -83,12 +83,18 @@ func (c *Claims) Allowed() bool {
 func (a *Authorizer) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if key := a.keys[kid]; key != nil && time.Since(a.fetched) < 5*time.Minute {
-		return key, nil
+	cached := a.keys[kid]
+	if cached != nil && time.Since(a.fetched) < 5*time.Minute {
+		return cached, nil
 	}
 	// Unknown kids trigger a refresh for rotation, bounded to avoid an attacker
-	// turning invalid JWT headers into unlimited Center requests.
+	// turning invalid JWT headers into unlimited Center requests. A known key
+	// stays usable inside that bound: an RSA public key does not expire, so
+	// refusing it would reject a valid session over refresh pacing alone.
 	if time.Since(a.lastRefresh) < time.Second {
+		if cached != nil {
+			return cached, nil
+		}
 		return nil, fmt.Errorf("unknown signing key")
 	}
 	a.lastRefresh = time.Now()
@@ -96,6 +102,12 @@ func (a *Authorizer) key(ctx context.Context, kid string) (*rsa.PublicKey, error
 		Keys []struct{ Kty, Kid, Alg, Use, N, E string } `json:"keys"`
 	}
 	if err := JSON(ctx, a.Client, "GET", a.Center+"/.well-known/jwks.json", "", nil, &doc); err != nil {
+		// A Center outage must not invalidate sessions whose key is already
+		// known. Revocation still works: a successful refresh that drops the
+		// key replaces the cache below.
+		if cached != nil {
+			return cached, nil
+		}
 		return nil, err
 	}
 	keys := map[string]*rsa.PublicKey{}

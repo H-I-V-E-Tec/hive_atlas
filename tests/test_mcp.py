@@ -1,17 +1,14 @@
-"""MCP (Etapa 6), licença (9) e feedback (10)."""
+"""MCP (Etapa 6) e feedback (10)."""
 
 import json
-import time
 from pathlib import Path
 
 import pytest
 
-from atlas.license import LicenseError, License, issue, verify
 from atlas.mcp_server import Server
 from atlas import feedback
 
 ROOT = Path(__file__).resolve().parent.parent
-KEY = b"chave-de-teste-nao-usar-em-prod"
 
 
 @pytest.fixture
@@ -67,37 +64,3 @@ def test_feedback_grava(server: Server, tmp_path, monkeypatch):
 def test_metodo_desconhecido(server: Server):
     resp = server.handle({"jsonrpc": "2.0", "id": 9, "method": "foo/bar"})
     assert resp["error"]["code"] == -32601
-
-
-# ---- licença ----
-def test_licenca_valida_verifica():
-    tok = issue({"sub": "acme", "exp": 0, "seats": 3}, KEY)
-    lic = verify(tok, KEY)
-    assert isinstance(lic, License) and lic.subject == "acme" and lic.seats == 3
-
-
-def test_licenca_assinatura_invalida():
-    tok = issue({"sub": "acme", "exp": 0}, KEY)
-    with pytest.raises(LicenseError):
-        verify(tok, b"chave-errada")
-
-
-def test_licenca_expirada():
-    tok = issue({"sub": "acme", "exp": int(time.time()) - 10}, KEY)
-    with pytest.raises(LicenseError):
-        verify(tok, KEY)
-
-
-def test_startup_fail_closed_quando_exigida(monkeypatch):
-    from atlas import license as lic_mod
-    monkeypatch.setenv("ATLAS_REQUIRE_LICENSE", "1")
-    monkeypatch.delenv("ATLAS_LICENSE", raising=False)
-    monkeypatch.delenv("ATLAS_LICENSE_KEY", raising=False)
-    with pytest.raises(LicenseError):
-        lic_mod.check_startup()
-
-
-def test_startup_interno_sem_licenca(monkeypatch):
-    from atlas import license as lic_mod
-    monkeypatch.delenv("ATLAS_REQUIRE_LICENSE", raising=False)
-    assert lic_mod.check_startup() is None

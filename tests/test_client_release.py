@@ -1,4 +1,4 @@
-"""Exercita o pacote real fora do checkout, sem Qdrant, Ollama ou licença."""
+"""Exercita o pacote real fora do checkout, sem Qdrant nem Ollama."""
 
 import json
 import os
@@ -21,7 +21,7 @@ def package(tmp_path):
 
 def run_package(package, tmp_path, args=(), requests=(), **overrides):
     env = os.environ.copy()
-    for key in ("QDRANT_API_KEY", "ATLAS_REQUIRE_LICENSE", "ATLAS_LICENSE", "ATLAS_LICENSE_KEY", "ATLAS_FEEDBACK_FILE"):
+    for key in ("QDRANT_API_KEY", "ATLAS_FEEDBACK_FILE"):
         env.pop(key, None)
     env["HIVE_HOME"] = str(tmp_path / "hive")
     env.update(overrides)
@@ -32,8 +32,8 @@ def run_package(package, tmp_path, args=(), requests=(), **overrides):
     )
 
 
-def test_package_version_without_license_or_services(package, tmp_path):
-    proc = run_package(package, tmp_path, args=("version", "--json"), ATLAS_REQUIRE_LICENSE="1")
+def test_package_version_without_services(package, tmp_path):
+    proc = run_package(package, tmp_path, args=("version", "--json"))
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout) == {"name": "hive-atlas", "version": VERSION, "revision": REVISION}
     assert proc.stderr == ""
@@ -61,13 +61,6 @@ def test_package_serves_bundled_library_and_records_feedback(package, tmp_path):
     assert json.loads(feedback.read_text())["signal_id"] == "C-02"
     with zipfile.ZipFile(package) as archive:
         assert not any("feedback" in name and name.endswith(".jsonl") for name in archive.namelist())
-
-
-def test_package_license_gate_remains_fail_closed(package, tmp_path):
-    proc = run_package(package, tmp_path, ATLAS_REQUIRE_LICENSE="1")
-    assert proc.returncode == 2
-    assert proc.stdout == ""
-    assert "licen" in proc.stderr.lower()
 
 
 def test_package_reproducible_without_local_artifacts(package, tmp_path):

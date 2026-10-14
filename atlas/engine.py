@@ -87,14 +87,20 @@ class Engine:
 
     def _expand_candidates(self, ids: set[str]) -> set[str]:
         """Inclui feeders de chains candidatas e chains alimentadas por sinais
-        candidatos, para o pré-filtro não quebrar as composições."""
+        candidatos, para o pré-filtro não quebrar as composições.
+
+        A expansão vai até o ponto fixo: uma composição com mais de dois elos
+        (C-* que exige outro C-*) sobrevive ao orçamento."""
         out = set(ids)
-        for fid in list(ids):
-            f = self.library.get(fid)
+        queue = list(ids)
+        while queue:
+            f = self.library.get(queue.pop())
             if not f:
                 continue
-            out.update(f.requires)   # chain → seus feeders
-            out.update(f.feeds)      # sinal → chains que ele alimenta
+            for fid in (*f.requires, *f.feeds):   # chain → feeders; sinal → chains
+                if fid not in out:
+                    out.add(fid)
+                    queue.append(fid)
         return out
 
     def select_candidates(self, corpus: Corpus, retriever, k: int = 5) -> set[str]:
