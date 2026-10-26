@@ -232,7 +232,7 @@ func mintReader(o *options) error {
 	return privateWrite(o.output, []byte(signed+"\n"))
 }
 
-func watch(ctx context.Context, o *options, stderr io.Writer) error {
+func watch(ctx context.Context, o *options, stderr io.Writer) (err error) {
 	sources := o.sources
 	if len(sources) == 0 && os.Getenv("ATLAS_SOURCE") != "" {
 		sources = filepath.SplitList(os.Getenv("ATLAS_SOURCE"))
@@ -249,6 +249,7 @@ func watch(ctx context.Context, o *options, stderr io.Writer) error {
 	}
 	w := core.Watcher{Sources: sources, ManifestPath: o.manifest, BoardPath: o.board,
 		Adapter: core.Adapter{ProgramID: o.program, Asset: o.asset}}
+	defer func() { err = errors.Join(err, w.Close()) }()
 	if os.Getenv("ATLAS_OFFLINE") == "1" {
 		lib, err := localLibrary(o.library)
 		if err != nil {

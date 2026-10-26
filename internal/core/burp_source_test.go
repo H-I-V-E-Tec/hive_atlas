@@ -161,6 +161,24 @@ func TestBurpWatcherInvalidationAndNewGeneration(t *testing.T) {
 	}
 }
 
+// ATLAS-BURP-AC02 / SPEC-009-AC03: orderly watcher shutdown removes the
+// board even while the producer's manifest remains active.
+func TestBurpWatcherShutdownRemovesBoard(t *testing.T) {
+	w, source, board := burpWatcher(t)
+	if err := os.WriteFile(source, []byte(eventLine(t, testBurpEvent("44444444-4444-4444-8444-444444444444", "endpoint"))), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := w.Poll(); err != nil || n != 1 {
+		t.Fatalf("initial poll: %d %v", n, err)
+	}
+	if err := w.Close(); err != nil || len(w.Events) != 0 {
+		t.Fatalf("shutdown retained corpus: %v", err)
+	}
+	if _, err := os.Stat(board); !os.IsNotExist(err) {
+		t.Fatalf("shutdown retained board: %v", err)
+	}
+}
+
 // ATLAS-BURP-AC02/03: expiry, mismatched program and unsafe source fail
 // closed; concurrent invalidation cannot publish a board.
 func TestBurpWatcherRejectsStaleUnsafeAndConcurrentInvalidation(t *testing.T) {

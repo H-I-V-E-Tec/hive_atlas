@@ -186,6 +186,14 @@ func (w *Watcher) Poll() (int, error) {
 	return count, nil
 }
 
+// Close removes Burp-derived in-memory state and board on orderly shutdown.
+func (w *Watcher) Close() error {
+	if w.ManifestPath == "" {
+		return nil
+	}
+	return w.clearBurp()
+}
+
 func (w *Watcher) writeBoard() error {
 	var board Board
 	if w.Recommend != nil {

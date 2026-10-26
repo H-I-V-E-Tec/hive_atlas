@@ -174,7 +174,8 @@ bin/hive-atlas watch --offline --program-id demo \
 ```
 
 O modo manifesto aceita apenas envelopes v1 completos, deduplica `event_id`,
-verifica frescor e remove o board quando a fonte é invalidada. O watcher legado
+verifica frescor e remove o board quando a fonte é invalidada ou o watcher
+encerra normalmente. O watcher legado
 recusa referências `hive_burp:`. O contrato e as limitações estão em
 [docs/spec/burp-source-v1.md](docs/spec/burp-source-v1.md). A emissão do
 manifesto pelo daemon e a homologação Burp→Atlas ainda estão pendentes.
