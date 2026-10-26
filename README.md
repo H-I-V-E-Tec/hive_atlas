@@ -156,12 +156,28 @@ bash deploy/test_deploy_server.sh
 bash deploy/test_pull_server_release.sh
 ```
 
-Watcher de evidência JSONL (por exemplo, produzido pelo hive_burp):
+Watcher de evidência JSONL legado:
 
 ```bash
 bin/hive-atlas watch --offline --program-id demo --asset api.demo.invalid \
   --source /caminho/da/sessao/events.jsonl --board /caminho/board.md
 ```
+
+Para uma fonte `hive_burp`, use o manifesto de ciclo de vida v1 em diretório
+privado (`0700`), com manifesto e projeção privados (`0600`). O manifesto
+determina o JSONL; não use `--source` neste modo:
+
+```bash
+bin/hive-atlas watch --offline --program-id demo \
+  --manifest /caminho/da/sessao/atlas-source.json \
+  --board /caminho/privado/board.md
+```
+
+O modo manifesto aceita apenas envelopes v1 completos, deduplica `event_id`,
+verifica frescor e remove o board quando a fonte é invalidada. O watcher legado
+recusa referências `hive_burp:`. O contrato e as limitações estão em
+[docs/spec/burp-source-v1.md](docs/spec/burp-source-v1.md). A emissão do
+manifesto pelo daemon e a homologação Burp→Atlas ainda estão pendentes.
 
 O watcher **relata** em stderr as recusas acumuladas (outro programa, credencial
 evidente, JSON inválido) como contagem, nunca conteúdo; processa linhas completas,

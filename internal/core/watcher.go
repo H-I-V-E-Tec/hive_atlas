@@ -42,6 +42,10 @@ func (a *Adapter) Event(line, ref string) *Evidence {
 		a.RejectedSecret++
 		return nil
 	}
+	if strings.Contains(s, "hive_burp:") {
+		a.RejectedInvalid++
+		return nil
+	}
 	e := Evidence{Kind: "nota", Value: s, ProgramID: a.ProgramID, Asset: a.Asset, Ref: ref}
 	if strings.HasPrefix(s, "{") {
 		e = Evidence{}
@@ -77,18 +81,24 @@ type fileState struct {
 	Info   os.FileInfo
 }
 type Watcher struct {
-	Library   *Library
-	Recommend func([]Evidence) (Board, error)
-	Sources   []string
-	BoardPath string
-	Adapter   Adapter
-	Events    []Evidence
+	Library      *Library
+	Recommend    func([]Evidence) (Board, error)
+	Sources      []string
+	BoardPath    string
+	ManifestPath string
+	Adapter      Adapter
+	Events       []Evidence
 	// MaxEvents bounds the session window and MaxPollBytes one poll's read;
 	// both fall back to the package defaults when zero.
-	MaxEvents    int
-	MaxPollBytes int
-	dropped      int
-	states       map[string]fileState
+	MaxEvents     int
+	MaxPollBytes  int
+	dropped       int
+	states        map[string]fileState
+	burpIdentity  string
+	burpSource    string
+	seenBurpIDs   map[string]struct{}
+	burpUsedFiles map[string]string
+	burpRevoked   map[string]bool
 }
 
 // Refusals exposes the running totals so a caller can report them.
@@ -109,6 +119,9 @@ func (w *Watcher) add(e Evidence) {
 }
 
 func (w *Watcher) Poll() (int, error) {
+	if w.ManifestPath != "" {
+		return w.pollBurp()
+	}
 	if w.states == nil {
 		w.states = map[string]fileState{}
 	}
@@ -166,22 +179,29 @@ func (w *Watcher) Poll() (int, error) {
 		w.states[path] = st
 	}
 	if count > 0 {
-		var board Board
-		if w.Recommend != nil {
-			var err error
-			board, err = w.Recommend(w.Events)
-			if err != nil {
-				return count, err
-			}
-		} else {
-			board = w.Library.Recommend(w.Events, 0)
-		}
-		if err := os.MkdirAll(filepath.Dir(w.BoardPath), 0700); err != nil {
-			return count, err
-		}
-		if err := os.WriteFile(w.BoardPath, []byte("# Atlas — board de melhor caminho\n\n"+board.Board), 0600); err != nil {
+		if err := w.writeBoard(); err != nil {
 			return count, err
 		}
 	}
 	return count, nil
+}
+
+func (w *Watcher) writeBoard() error {
+	var board Board
+	if w.Recommend != nil {
+		var err error
+		board, err = w.Recommend(w.Events)
+		if err != nil {
+			return err
+		}
+	} else {
+		board = w.Library.Recommend(w.Events, 0)
+	}
+	if err := os.MkdirAll(filepath.Dir(w.BoardPath), 0700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(w.BoardPath, []byte("# Atlas — board de melhor caminho\n\n"+board.Board), 0600); err != nil {
+		return err
+	}
+	return nil
 }

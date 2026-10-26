@@ -53,6 +53,12 @@ só o adaptador.
 
 O mesmo motor consome os dois — "ao vivo" é só o watcher re-alimentando o núcleo.
 
+Para evidência do `hive_burp`, o watcher Go exige o manifesto de ciclo de vida
+`atlas-source-v1` e o subconjunto minimizado `evidence-v1`, conforme
+[a spec do consumidor](spec/burp-source-v1.md). O modo JSONL legado não aceita
+referências `hive_burp:`. Esta integração de consumidor não autoriza o Atlas a
+inferir escopo nem indica que a emissão pelo daemon esteja habilitada.
+
 ## Fronteiras
 
 - O produtor sanitiza tokens, cookies, chaves de API e PII **antes de emitir**.
