@@ -54,3 +54,11 @@ def test_linha_json_estruturada_e_parseada(watcher: SessionWatcher):
     _append(src, '{"kind":"param","value":"userId=1 retorna dado","flow":"authz"}')
     watcher.poll_once()
     assert any(e.kind == "param" for e in watcher.corpus)
+
+
+def test_legacy_adapter_rejects_burp_reference_without_manifest(watcher: SessionWatcher):
+    source = watcher.sources[0]
+    _append(source, '{"kind":"endpoint","program_id":"acme","ref":"hive_burp:acme/session/capture"}')
+    assert watcher.poll_once() == 0
+    assert len(watcher.corpus) == 0
+    assert watcher.adapter.rejected_invalid == 1

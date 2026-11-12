@@ -43,6 +43,9 @@ class LineAdapter:
         if has_secret(s):
             self.rejected_secret += 1
             return None
+        if "hive_burp:" in s:
+            self.rejected_invalid += 1
+            return None
         if s[0] == "{":
             try:
                 d = json.loads(s)

@@ -27,11 +27,11 @@ const usage = "hive atlas [mcp|version|doctor|setup|watch|serve|push|eval]\n" +
 // options carries the parsed flags. Every command emits JSON, so --json is
 // accepted for compatibility and never read.
 type options struct {
-	library, addr, output, client, config string
-	program, asset, board, cases          string
-	local, offline, jsonOut               bool
-	interval                              time.Duration
-	sources                               sourceFlags
+	library, addr, output, client, config  string
+	program, asset, board, cases, manifest string
+	local, offline, jsonOut                bool
+	interval                               time.Duration
+	sources                                sourceFlags
 }
 
 func Run(args []string, in io.Reader, out, stderr io.Writer) int {
@@ -62,6 +62,7 @@ func Run(args []string, in io.Reader, out, stderr io.Writer) int {
 	fs.StringVar(&o.program, "program-id", "", "watcher program scope")
 	fs.StringVar(&o.asset, "asset", "", "watcher asset")
 	fs.StringVar(&o.board, "board", "board.md", "watcher board path")
+	fs.StringVar(&o.manifest, "manifest", "", "Burp source lifecycle manifest")
 	fs.DurationVar(&o.interval, "interval", 2*time.Second, "watch polling interval")
 	fs.StringVar(&o.cases, "cases", "eval/cases.json", "evaluation cases")
 	fs.Var(&o.sources, "source", "JSONL evidence source (repeatable)")
@@ -231,16 +232,24 @@ func mintReader(o *options) error {
 	return privateWrite(o.output, []byte(signed+"\n"))
 }
 
-func watch(ctx context.Context, o *options, stderr io.Writer) error {
+func watch(ctx context.Context, o *options, stderr io.Writer) (err error) {
 	sources := o.sources
 	if len(sources) == 0 && os.Getenv("ATLAS_SOURCE") != "" {
 		sources = filepath.SplitList(os.Getenv("ATLAS_SOURCE"))
 	}
-	if len(sources) == 0 || o.program == "" || o.interval <= 0 {
-		return fmt.Errorf("watch requires --source, --program-id and positive --interval")
+	if o.program == "" || o.interval <= 0 {
+		return fmt.Errorf("watch requires --program-id and positive --interval")
 	}
-	w := core.Watcher{Sources: sources, BoardPath: o.board,
+	if o.manifest != "" {
+		if len(sources) != 0 || o.interval > 10*time.Second {
+			return fmt.Errorf("Burp watch requires --manifest without --source and interval at most 10s")
+		}
+	} else if len(sources) == 0 {
+		return fmt.Errorf("watch requires --source or --manifest")
+	}
+	w := core.Watcher{Sources: sources, ManifestPath: o.manifest, BoardPath: o.board,
 		Adapter: core.Adapter{ProgramID: o.program, Asset: o.asset}}
+	defer func() { err = errors.Join(err, w.Close()) }()
 	if os.Getenv("ATLAS_OFFLINE") == "1" {
 		lib, err := localLibrary(o.library)
 		if err != nil {
