@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +49,9 @@ func eventLine(t *testing.T, event any) string {
 
 func burpWatcher(t *testing.T) (*Watcher, string, string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("positive Burp source tests require POSIX permissions; Windows refusal is tested separately")
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -281,4 +285,22 @@ func TestBurpWatcherRejectsStaleUnsafeAndConcurrentInvalidation(t *testing.T) {
 			t.Fatalf("board published after invalidation: %v", err)
 		}
 	})
+}
+
+// ATLAS-BURP-AC04: unsupported permissions cannot expose a private source handle.
+func TestBurpSourceRejectsWindowsWithoutACLValidation(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows ACL boundary")
+	}
+	path := filepath.Join(t.TempDir(), "private.json")
+	if err := os.WriteFile(path, []byte("synthetic-private-content"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	file, info, err := openPrivateRegular(path, maxBurpManifestBytes)
+	if file != nil {
+		defer file.Close()
+	}
+	if err == nil || file != nil || info != nil {
+		t.Fatal("private Burp source was opened without Windows ACL validation")
+	}
 }

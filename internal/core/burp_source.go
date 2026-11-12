@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -170,6 +171,10 @@ func parseBurpEvent(line []byte, manifest burpManifest) (burpEvent, Evidence, er
 }
 
 func openPrivateRegular(path string, maxBytes int64) (*os.File, os.FileInfo, error) {
+	if runtime.GOOS == "windows" {
+		return nil, nil, errors.New("private Burp sources require validated user ACLs on Windows")
+	}
+
 	parent, err := os.Lstat(filepath.Dir(path))
 	if err != nil || !parent.IsDir() || parent.Mode().Perm()&0077 != 0 {
 		return nil, nil, errors.New("Burp source directory must be private and regular")

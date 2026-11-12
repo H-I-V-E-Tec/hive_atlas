@@ -195,3 +195,5 @@ A troca do modelo de embeddings continua pendente de avaliação coordenada.
 O plano da entrega e as diferenças verificadas no Mind estão em
 [docs/spec/go-remote.md](docs/spec/go-remote.md). O histórico da proposta
 original está em [docs/historico-proposta-dojo.md](docs/historico-proposta-dojo.md).
+
+A fonte privada `watch --manifest` do Burp exige permissões POSIX em Linux/macOS. No Windows ela permanece indisponível até haver validação de ACL; os demais modos do Atlas continuam disponíveis.

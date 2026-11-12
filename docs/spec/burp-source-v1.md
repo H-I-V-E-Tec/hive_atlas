@@ -1,6 +1,6 @@
 # Fonte hive_burp v1 no watcher Atlas
 
-Estado: implementação do consumidor Go; produtor e homologação ponta a ponta pendentes.
+Estado: consumidor Go para Linux/macOS; fonte Burp bloqueada no Windows até validação de ACL. Produtor e homologação ponta a ponta pendentes.
 Contrato de origem: `hive_burp/docs/specs/009-eventos-atlas.md` e seus schemas
 `atlas-source-v1` e `evidence-v1`. Esta spec implementa a parte do consumidor
 dos critérios SPEC-009-AC01/02/03/04; não comprova SPEC-009-AC05.
@@ -27,3 +27,12 @@ O modo JSONL legado permanece para fontes que não alegam ser do hive_burp.
 O watcher não revalida o escopo externo nem autoriza captura: isso pertence ao
 gate do produtor. Sem produtor, daemon, release assinado e teste Burp real, a
 integração comercial continua desligada.
+
+## Permissões por plataforma
+
+| ID | Requisito / critério |
+| --- | --- |
+| ATLAS-BURP-R06 | A fonte privada Burp exige permissões POSIX verificáveis. No Windows, recusar antes de ler qualquer byte até implementar e homologar ACL por usuário; os demais modos do Atlas permanecem disponíveis. |
+| ATLAS-BURP-AC04 | Teste nativo Windows confirma recusa da leitura privada sem devolver conteúdo. Ensaios de leitura positiva/invalidação POSIX executam em Linux/macOS e são explicitamente não aplicáveis ao Windows. |
+
+Em 2026-11-12 a CI confirmou a diferença de permissões no Windows. A correção preserva o comportamento de recusa, sem relaxar privacidade para fazer o teste passar.
